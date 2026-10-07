@@ -1,0 +1,12 @@
+node_modules/
+worker/.venv/
+worker/__pycache__/
+.env
+data/input/*
+data/output/*
+data/.cache/
+!data/input/.gitkeep
+!data/output/.gitkeep
+
+images-for-testing/
+images-for-testing/

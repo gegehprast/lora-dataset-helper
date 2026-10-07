@@ -1,0 +1,8 @@
+torch
+torchvision
+open_clip_torch
+onnxruntime-gpu
+opencv-python-headless
+pillow
+imagehash
+numpy

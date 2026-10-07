@@ -10,6 +10,11 @@ A local web app that picks the best images for a **character LoRA** from a folde
 
 Input files are never modified.
 
+## Documentation
+
+- [User Guide](docs/user-guide.md): installation, workflow, review screen, settings, rejection reasons, captions, privacy, troubleshooting
+- [Developer Guide](docs/developer-guide.md): architecture, data model, pipeline and selection algorithm, worker protocol, HTTP API, how to extend
+
 ## Setup
 
 Requires [Bun](https://bun.com), Python 3.12, and ideally an NVIDIA GPU (CPU works, but slower).

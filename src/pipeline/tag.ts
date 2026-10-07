@@ -74,24 +74,21 @@ export const PROMPT = `Assess this photo of the main subject. Fields:
 - quality: 1-10, how useful this image is for learning the subject's likeness (sharp detailed face, natural look, good light = high).
 - note: one short sentence with anything else notable.`
 
+/**
+ * Only the groups of equivalent outfits are requested; everything unlisted is its own outfit.
+ * This keeps the reply short and needs no counting (asking for one value per description made
+ * models miscount long lists or run out of output tokens).
+ */
 const GROUP_SCHEMA = {
   name: "outfit_groups",
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["groups"],
+    required: ["same"],
     properties: {
-      groups: {
+      same: {
         type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["label", "items"],
-          properties: {
-            label: { type: "string" },
-            items: { type: "array", items: { type: "integer" } },
-          },
-        },
+        items: { type: "array", items: { type: "integer" } },
       },
     },
   },
@@ -107,14 +104,46 @@ const normalizeOutfit = (o: string) =>
     .trim()
 
 /**
+ * Turn the model's groups of indices into description → label. Groups that share a member are
+ * merged; invalid indices are ignored. Each group is labelled with its shortest description.
+ */
+export function mergeGroups(
+  unique: string[],
+  groups: unknown[],
+): Map<string, string> {
+  const parent = unique.map((_, i) => i)
+  const find = (i: number): number => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]]
+      i = parent[i]
+    }
+    return i
+  }
+  for (const g of groups) {
+    if (!Array.isArray(g)) continue
+    const valid = g.filter(
+      (i): i is number => Number.isInteger(i) && i >= 0 && i < unique.length,
+    )
+    for (const i of valid.slice(1)) parent[find(i)] = find(valid[0])
+  }
+  const label = new Map<number, string>()
+  unique.forEach((u, i) => {
+    const root = find(i)
+    const current = label.get(root)
+    if (current === undefined || u.length < current.length) label.set(root, u)
+  })
+  return new Map(unique.map((u, i) => [u, label.get(find(i)) ?? u]))
+}
+
+/**
  * Give every reviewed image an outfit group, so "black hoodie" and "dark hooded sweatshirt"
  * count as the same outfit. Sends only the outfit descriptions (text, no images) in one request.
- * Falls back to exact (normalized) descriptions if that fails. Returns a note on failure.
+ * Returns whether a request was sent, and a note if grouping failed.
  */
 export async function groupOutfits(
   dataset: string,
   s: Settings,
-): Promise<string | null> {
+): Promise<{ requested: boolean; note: string | null }> {
   const rows = db
     .query<{ id: number; outfit: string | null }, [string]>(
       `SELECT id, json_extract(tags, '$.outfit') AS outfit FROM images
@@ -128,28 +157,24 @@ export async function groupOutfits(
   ]
   const groupOf = new Map(unique.map((u) => [u, u]))
   let note: string | null = null
+  let requested = false
 
   if (unique.length > 1 && unique.length <= MAX_GROUP_ITEMS) {
+    requested = true
     try {
       const list = unique.map((u, i) => `${i}: ${u}`).join("\n")
-      const reply = await chatJson<{
-        groups: { label: string; items: number[] }[]
-      }>({
+      const reply = await chatJson<{ same: unknown }>({
         model: s.tagModel,
         system:
           "You organise photo metadata. Reply with a single JSON object and nothing else.",
-        prompt: `These are outfit descriptions from photos of one person. Group them so each group is the same outfit: the same main garments and colors. Ignore wording differences and small accessories. Give each group a short label such as "black hoodie + jeans". Every number must appear in exactly one group.\n\n${list}`,
+        prompt: `These are outfit descriptions from photos of one person, numbered 0 to ${unique.length - 1}. Decide which describe the same outfit: the same main garments and colors, ignoring wording differences and small accessories.\nReply with "same": a list of groups, each a list of the numbers of descriptions that are the same outfit. Only include groups of 2 or more; leave out descriptions that match nothing else. Use an empty list if all outfits are different.\n\n${list}`,
         schema: GROUP_SCHEMA,
         requirePrivate: s.privateModelsOnly,
-        maxTokens: 4000,
+        maxTokens: Math.min(16_000, 500 + unique.length * 8),
       })
-      for (const g of reply.groups ?? []) {
-        const label = g.label?.trim().toLowerCase()
-        if (!label) continue
-        for (const i of g.items ?? []) {
-          const u = unique[i]
-          if (u) groupOf.set(u, label)
-        }
+      if (!Array.isArray(reply.same)) throw new Error("reply has no groups")
+      for (const [u, label] of mergeGroups(unique, reply.same)) {
+        groupOf.set(u, label)
       }
     } catch (e) {
       note = `outfit grouping failed (${(e as Error).message}); exact descriptions used instead`
@@ -158,14 +183,16 @@ export async function groupOutfits(
     note = `too many distinct outfits to group (${unique.length}); exact descriptions used instead`
   }
 
+  // After a failure, leave groups empty: the selection then compares the outfit text directly,
+  // and the next review run retries the grouping.
   const update = db.query("UPDATE images SET outfit_group = ? WHERE id = ?")
   db.transaction(() => {
     for (const r of rows) {
       const n = normalizeOutfit(r.outfit ?? "")
-      update.run(n ? (groupOf.get(n) ?? n) : null, r.id)
+      update.run(n && !note ? (groupOf.get(n) ?? n) : null, r.id)
     }
   })()
-  return note
+  return { requested, note }
 }
 
 type Candidate = { id: number; rel_path: string }
@@ -281,11 +308,25 @@ export async function tagDataset(dataset: string, ctx: JobContext) {
   }
 
   if (!attempted.size) {
-    return "Nothing new to review"
+    // Nothing to review, but outfits may still need grouping (new reviews' groups failed last time).
+    const ungrouped = db
+      .query<{ n: number }, [string]>(
+        `SELECT COUNT(*) AS n FROM images WHERE dataset = ?
+         AND tags IS NOT NULL AND outfit_group IS NULL`,
+      )
+      .get(dataset)?.n
+    if (!ungrouped) return "Nothing new to review"
+    ctx.stage("Grouping outfits", 0)
+    const { requested, note } = await groupOutfits(dataset, s)
+    runSelection(dataset)
+    if (note) return `Nothing new to review. ${note}.`
+    return requested
+      ? "Nothing new to review. Outfits grouped."
+      : "Nothing new to review"
   }
 
   ctx.stage("Grouping outfits", 0)
-  const groupNote = await groupOutfits(dataset, s)
+  const { note: groupNote } = await groupOutfits(dataset, s)
   ctx.stage("Selecting", 0)
   const sum = runSelection(dataset)
   const unreviewed = needingReview(dataset, s.tagModel, CANDIDATE).filter(

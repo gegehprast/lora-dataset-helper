@@ -160,9 +160,18 @@ async function chat(opts: ChatOptions): Promise<string> {
     })
     if (res.ok) {
       const json = (await res.json()) as {
-        choices: { message: { content: string | null } }[]
+        choices: {
+          message: { content: string | null }
+          finish_reason?: string
+        }[]
       }
-      const content = json.choices?.[0]?.message?.content ?? ""
+      const choice = json.choices?.[0]
+      if (choice?.finish_reason === "length") {
+        throw new Error(
+          `the reply was cut off at the ${body.max_tokens}-token limit`,
+        )
+      }
+      const content = choice?.message?.content ?? ""
       return content.replace(/<think>[\s\S]*?<\/think>/g, "").trim()
     }
     const text = await res.text()

@@ -7,7 +7,7 @@ import { paths } from "../src/config"
 import { db, getRow, listRows, saveSettings, toRecord } from "../src/db"
 import { captionDataset, captionImage } from "../src/pipeline/caption"
 import { runSelection } from "../src/pipeline/select"
-import { tagDataset } from "../src/pipeline/tag"
+import { mergeGroups, tagDataset } from "../src/pipeline/tag"
 import { clearModelCache } from "../src/venice"
 import {
   chatReply,
@@ -308,14 +308,7 @@ describe("outfit grouping", () => {
     const { ds, ids } = await dataset(3)
     saveSettings(ds, { tagModel: "priv-a", concurrency: 1 })
     const chats = veniceWithGrouping(() =>
-      chatReply(
-        JSON.stringify({
-          groups: [
-            { label: "Black hoodie + jeans", items: [0, 1] },
-            { label: "red dress", items: [2] },
-          ],
-        }),
-      ),
+      chatReply(JSON.stringify({ same: [[0, 1]] })),
     )
     await tagDataset(ds, fakeCtx().ctx)
     const groupReq = chats().filter(
@@ -324,8 +317,23 @@ describe("outfit grouping", () => {
     expect(groupReq).toHaveLength(1)
     expect(JSON.stringify(groupReq[0].body)).not.toContain("image_url")
     const groups = ids.map((id) => getRow(id)?.outfit_group)
-    expect(groups.filter((g) => g === "black hoodie + jeans")).toHaveLength(2)
+    // Labelled with the group's shortest description.
+    expect(groups.filter((g) => g === "black hoodie, jeans")).toHaveLength(2)
     expect(groups).toContain("red dress")
+  })
+
+  test("a cut-off reply is reported as such", async () => {
+    const { ds } = await dataset(3)
+    saveSettings(ds, { tagModel: "priv-a", concurrency: 1 })
+    veniceWithGrouping(() =>
+      json({
+        choices: [
+          { message: { content: '{"same": [[0,' }, finish_reason: "length" },
+        ],
+      }),
+    )
+    const msg = await tagDataset(ds, fakeCtx().ctx)
+    expect(msg).toContain("outfit grouping failed (the reply was cut off")
   })
 
   test("falls back to exact descriptions when grouping fails", async () => {
@@ -334,7 +342,18 @@ describe("outfit grouping", () => {
     veniceWithGrouping(() => new Response("bad", { status: 400 }))
     const msg = await tagDataset(ds, fakeCtx().ctx)
     expect(msg).toContain("outfit grouping failed")
-    expect(new Set(ids.map((id) => getRow(id)?.outfit_group)).size).toBe(3)
+    // Groups stay empty so the next run retries; the selection compares the outfit text.
+    for (const id of ids) expect(getRow(id)?.outfit_group).toBeNull()
+
+    // Next run: nothing new to review, but the grouping is retried and succeeds.
+    mock?.restore()
+    const chats = veniceWithGrouping(() =>
+      chatReply(JSON.stringify({ same: [[0, 1]] })),
+    )
+    expect(await tagDataset(ds, fakeCtx().ctx)).toBe(
+      "Nothing new to review. Outfits grouped.",
+    )
+    expect(chats()).toHaveLength(1)
     expect(getRow(ids[0])?.outfit_group).toBe("black hoodie, jeans")
   })
 
@@ -344,5 +363,49 @@ describe("outfit grouping", () => {
     const chats = venice(() => chatReply(JSON.stringify(tags())))
     await tagDataset(ds, fakeCtx().ctx)
     expect(chats()).toHaveLength(2)
+  })
+})
+
+describe("mergeGroups", () => {
+  const u = [
+    "black hoodie, jeans",
+    "dark hooded sweatshirt and jeans",
+    "hoodie with jeans",
+    "red dress",
+    "red sundress",
+    "white tee",
+  ]
+
+  test("labels each group with its shortest description; unlisted stay alone", () => {
+    const m = mergeGroups(u, [
+      [0, 1, 2],
+      [3, 4],
+    ])
+    expect(m.get(u[1])).toBe("hoodie with jeans")
+    expect(m.get(u[0])).toBe("hoodie with jeans")
+    expect(m.get(u[4])).toBe("red dress")
+    expect(m.get(u[5])).toBe("white tee")
+  })
+
+  test("groups that share a member are merged", () => {
+    const m = mergeGroups(u, [
+      [0, 1],
+      [1, 2],
+    ])
+    expect(new Set([0, 1, 2].map((i) => m.get(u[i])))).toEqual(
+      new Set(["hoodie with jeans"]),
+    )
+  })
+
+  test("ignores invalid indices and malformed groups", () => {
+    const m = mergeGroups(u, [
+      [3, 99, -1, 1.5, "4" as unknown as number],
+      "x",
+      null,
+      [5],
+    ])
+    expect(m.get(u[3])).toBe("red dress")
+    expect(m.get(u[4])).toBe("red sundress")
+    expect(m.size).toBe(u.length)
   })
 })

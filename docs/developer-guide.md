@@ -167,7 +167,12 @@ Sends rows with `analysis IS NULL` to the worker in batches of 8, after a `load`
 3. **Replacement rounds:** re-selects. Any *selected* image still lacking a review, not yet attempted in this run, gets reviewed. Repeats (at most 20 rounds) until every selected image is reviewed. Failed images aren't retried in the same run, so the loop always ends.
 4. Each review is a structured-output request (`TAG_SCHEMA`) through `chatJson()`. The result is cleaned (unknown issues dropped, quality clamped to 1–10) and stamped with `v: TAGS_VERSION`.
 5. If the first 3 requests all fail, the job aborts. Later failures are counted and logged.
-6. **Outfit grouping** (`groupOutfits`): collects the normalized outfit descriptions of every reviewed image in the dataset. If there are 2–400 distinct ones, it sends them as a numbered list in **one text-only request** (no images) to the review model, asking for groups of the same outfit. Each image's `outfit_group` is set to its group's label. If the request fails, or there are too many, the normalized description is used instead and the job message says so.
+6. **Outfit grouping** (`groupOutfits`): collects the normalized outfit descriptions of every reviewed image in the dataset. If there are 2–400 distinct ones, it sends them as a numbered list in **one text-only request** (no images) to the review model.
+   - The model replies with only the groups of equivalent outfits, e.g. `{"same": [[0, 4, 9], [2, 7]]}`. Unlisted descriptions are their own outfit.
+   - `mergeGroups()` combines groups that share a member, ignores invalid numbers, and labels each group with its shortest description. That becomes the image's `outfit_group`.
+   - If the request fails, `outfit_group` is left NULL. The selection then compares the outfit text directly, and the next review run retries the grouping, even when there's nothing new to review.
+   - Earlier formats failed on real data. A label plus member list per group overran the output limit at ~150 outfits; one group number per outfit made models miscount long lists. Grouping quality depends on the review model: `qwen-3-8-27b` and `gemma-4-31b-it` grouped paraphrases correctly in tests, while `mistral-small-3.2` lumped outfits together by colour.
+   - `chat()` turns `finish_reason: "length"` into a "reply was cut off" error, instead of failing later on half a JSON object.
 7. Runs `runSelection()` again.
 
 Bump `TAGS_VERSION` in `types.ts` whenever `TAG_SCHEMA` changes in a way the selection depends on. Older reviews are then redone on the next run.

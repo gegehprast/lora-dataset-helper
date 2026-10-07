@@ -48,6 +48,17 @@ db.run(`CREATE TABLE IF NOT EXISTS images (
 )`)
 db.run("CREATE INDEX IF NOT EXISTS images_dataset ON images(dataset)")
 
+/** Add a column to an existing database if it's missing. */
+function addColumn(table: string, column: string, type: string) {
+  const cols = db
+    .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+    .all()
+  if (!cols.some((c) => c.name === column)) {
+    db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+  }
+}
+addColumn("images", "outfit_group", "TEXT")
+
 /** Raw row shape. */
 export interface ImageRow {
   id: number
@@ -73,6 +84,7 @@ export interface ImageRow {
   override: Override
   caption: string | null
   caption_model: string | null
+  outfit_group: string | null
 }
 
 // ---------- datasets ----------
@@ -93,6 +105,10 @@ export function getSettings(dataset: string): Settings {
     ...DEFAULT_SETTINGS,
     ...stored,
     framingMix: { ...DEFAULT_SETTINGS.framingMix, ...stored.framingMix },
+    varietyAttributes: {
+      ...DEFAULT_SETTINGS.varietyAttributes,
+      ...stored.varietyAttributes,
+    },
   }
 }
 
@@ -179,6 +195,7 @@ export function toRecord(row: ImageRow): ImageRecord {
     override: row.override,
     caption: row.caption,
     tags: parseTags(row),
+    outfitGroup: row.outfit_group,
     metrics: {
       aesthetic: a?.aesthetic ?? null,
       sharpness: a?.sharpness ?? null,

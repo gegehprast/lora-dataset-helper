@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import sharp from "sharp"
 import { paths } from "../src/config"
-import { getRow, listRows, saveSettings, toRecord } from "../src/db"
+import { db, getRow, listRows, saveSettings, toRecord } from "../src/db"
 import { captionDataset, captionImage } from "../src/pipeline/caption"
 import { runSelection } from "../src/pipeline/select"
 import { tagDataset } from "../src/pipeline/tag"
@@ -98,7 +98,7 @@ describe("review (tag) stage", () => {
     const { ds } = await dataset(2, { tags: tags(), tagsModel: "priv-a" })
     saveSettings(ds, { tagModel: "priv-a" })
     let chats = venice(() => chatReply(JSON.stringify(tags())))
-    expect(await tagDataset(ds, fakeCtx().ctx)).toBe("Nothing new to tag")
+    expect(await tagDataset(ds, fakeCtx().ctx)).toBe("Nothing new to review")
     expect(chats()).toHaveLength(0)
     mock!.restore()
     saveSettings(ds, { tagModel: "priv-b" })
@@ -158,7 +158,7 @@ describe("review (tag) stage", () => {
       n === 1 ? chatReply("not json") : chatReply(JSON.stringify(tags())),
     )
     const msg = await tagDataset(ds, fakeCtx().ctx)
-    expect(msg).toStartWith("Tagged 3/4")
+    expect(msg).toStartWith("Reviewed 3/4")
     expect(listRows(ds).filter((r) => r.tags)).toHaveLength(3)
   })
 })
@@ -209,5 +209,140 @@ describe("caption stage", () => {
     )
     await expect(captionImage(ids[0]!)).rejects.toThrow("Local only")
     expect(mock!.calls).toHaveLength(0)
+  })
+})
+
+describe("review limit", () => {
+  test("reviews only the best multiplier × target candidates", async () => {
+    const { ds } = await dataset(10)
+    saveSettings(ds, {
+      tagModel: "priv-a",
+      targetCount: 2,
+      reviewMultiplier: 2,
+    })
+    const chats = venice(() => chatReply(JSON.stringify(tags())))
+    const msg = await tagDataset(ds, fakeCtx().ctx)
+    expect(chats()).toHaveLength(4)
+    expect(msg).toContain("6 lower-ranked candidates not reviewed")
+  })
+
+  test("0 reviews every candidate", async () => {
+    const { ds } = await dataset(5)
+    saveSettings(ds, {
+      tagModel: "priv-a",
+      targetCount: 1,
+      reviewMultiplier: 0,
+    })
+    const chats = venice(() => chatReply(JSON.stringify(tags())))
+    await tagDataset(ds, fakeCtx().ctx)
+    expect(chats()).toHaveLength(5)
+  })
+
+  test("reviews replacements until every selected image is reviewed", async () => {
+    const { ds } = await dataset(8)
+    saveSettings(ds, {
+      tagModel: "priv-a",
+      targetCount: 2,
+      reviewMultiplier: 1,
+    })
+    // The first 3 reviews reject their image, so unreviewed reserves get promoted.
+    const chats = venice((n) =>
+      chatReply(
+        JSON.stringify(tags({ issues: n < 3 ? ["watermark_or_text"] : [] })),
+      ),
+    )
+    await tagDataset(ds, fakeCtx().ctx)
+    const selected = listRows(ds).filter((r) => r.status === "selected")
+    expect(selected).toHaveLength(2)
+    for (const r of selected) expect(r.tags).not.toBeNull()
+    expect(chats().length).toBeGreaterThan(2)
+    expect(chats().length).toBeLessThan(8)
+  })
+
+  test("pinned images are always reviewed, even beyond the limit", async () => {
+    const { ds, ids } = await dataset(4)
+    db.query("UPDATE images SET override = 'include' WHERE id = ?").run(ids[3])
+    saveSettings(ds, {
+      tagModel: "priv-a",
+      targetCount: 1,
+      reviewMultiplier: 1,
+    })
+    venice(() => chatReply(JSON.stringify(tags())))
+    await tagDataset(ds, fakeCtx().ctx)
+    expect(getRow(ids[3])?.tags).not.toBeNull()
+  })
+
+  test("reviews from an older review version are redone", async () => {
+    const { ds } = await dataset(2, {
+      tags: { ...tags(), v: 1 },
+      tagsModel: "priv-a",
+    })
+    saveSettings(ds, { tagModel: "priv-a" })
+    const chats = venice(() => chatReply(JSON.stringify(tags())))
+    await tagDataset(ds, fakeCtx().ctx)
+    expect(chats()).toHaveLength(2)
+  })
+})
+
+describe("outfit grouping", () => {
+  const outfits = [
+    "Black hoodie, jeans",
+    "dark hooded sweatshirt and jeans",
+    "red dress",
+  ]
+
+  /** Reviews return the outfits above in turn; the text-only grouping request gets `grouping()`. */
+  function veniceWithGrouping(grouping: () => Response) {
+    let n = 0
+    mock = mockFetch((url, init) => {
+      if (url.endsWith("/models?type=text"))
+        return json(modelsPayload([{ id: "priv-a" }]))
+      const body = JSON.parse(String(init?.body))
+      if (body.messages[1].content.length === 1) return grouping()
+      return chatReply(JSON.stringify(tags({ outfit: outfits[n++ % 3] })))
+    })
+    return () => mock!.calls.filter((c) => c.url.endsWith("/chat/completions"))
+  }
+
+  test("groups equivalent outfit descriptions with one text-only request", async () => {
+    const { ds, ids } = await dataset(3)
+    saveSettings(ds, { tagModel: "priv-a", concurrency: 1 })
+    const chats = veniceWithGrouping(() =>
+      chatReply(
+        JSON.stringify({
+          groups: [
+            { label: "Black hoodie + jeans", items: [0, 1] },
+            { label: "red dress", items: [2] },
+          ],
+        }),
+      ),
+    )
+    await tagDataset(ds, fakeCtx().ctx)
+    const groupReq = chats().filter(
+      (c) => c.body.messages[1].content.length === 1,
+    )
+    expect(groupReq).toHaveLength(1)
+    expect(JSON.stringify(groupReq[0].body)).not.toContain("image_url")
+    const groups = ids.map((id) => getRow(id)?.outfit_group)
+    expect(groups.filter((g) => g === "black hoodie + jeans")).toHaveLength(2)
+    expect(groups).toContain("red dress")
+  })
+
+  test("falls back to exact descriptions when grouping fails", async () => {
+    const { ds, ids } = await dataset(3)
+    saveSettings(ds, { tagModel: "priv-a", concurrency: 1 })
+    veniceWithGrouping(() => new Response("bad", { status: 400 }))
+    const msg = await tagDataset(ds, fakeCtx().ctx)
+    expect(msg).toContain("outfit grouping failed")
+    expect(new Set(ids.map((id) => getRow(id)?.outfit_group)).size).toBe(3)
+    expect(getRow(ids[0])?.outfit_group).toBe("black hoodie, jeans")
+  })
+
+  test("no grouping request when every outfit is the same", async () => {
+    const { ds } = await dataset(2)
+    saveSettings(ds, { tagModel: "priv-a" })
+    const chats = venice(() => chatReply(JSON.stringify(tags())))
+    await tagDataset(ds, fakeCtx().ctx)
+    expect(chats()).toHaveLength(2)
   })
 })

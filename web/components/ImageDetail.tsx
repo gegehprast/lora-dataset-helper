@@ -202,7 +202,16 @@ export function ImageDetail(p: Props) {
                 <dt>Expression</dt>
                 <dd>{t.expression}</dd>
                 <dt>Outfit</dt>
-                <dd>{t.outfit}</dd>
+                <dd>
+                  {t.outfit}
+
+                  {im.outfitGroup &&
+                    im.outfitGroup !== t.outfit.toLowerCase() && (
+                      <span className="muted"> · group: {im.outfitGroup}</span>
+                    )}
+                </dd>
+                <dt>Setting</dt>
+                <dd>{t.setting?.replaceAll("_", " ") ?? "—"}</dd>
                 <dt>Background</dt>
                 <dd>{t.background}</dd>
                 <dt>Lighting</dt>

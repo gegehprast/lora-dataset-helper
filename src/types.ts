@@ -5,6 +5,26 @@ export type CaptionStyle = "natural" | "tags"
 export type ImageStatus = "pending" | "selected" | "reserve" | "rejected"
 export type Override = "include" | "exclude" | null
 
+/** Review attributes the selection can spread across. */
+export const VARIETY_ATTRIBUTES = [
+  "outfit",
+  "setting",
+  "expression",
+  "view",
+  "lighting",
+  "camera",
+] as const
+export type VarietyAttribute = (typeof VARIETY_ATTRIBUTES)[number]
+
+export const VARIETY_LABELS: Record<VarietyAttribute, string> = {
+  outfit: "Outfit",
+  setting: "Setting",
+  expression: "Expression",
+  view: "View",
+  lighting: "Lighting",
+  camera: "Camera angle",
+}
+
 export interface Settings {
   /** Token that names the character in captions, e.g. "ohwx woman" or "jane_doe". */
   triggerWord: string
@@ -26,9 +46,16 @@ export interface Settings {
   framingMix: Record<Framing, number>
   /** 0 = pure quality ranking, 1 = maximum variety. */
   diversity: number
+  /** Review attributes whose repetition the selection penalises. */
+  varietyAttributes: Record<VarietyAttribute, boolean>
   /** Image ids whose main face defines the character's identity. Empty = automatic. */
   referenceImageIds: number[]
   tagModel: string
+  /**
+   * Review only the best `reviewMultiplier × targetCount` candidates by local score, plus
+   * replacements as needed. 0 = review every candidate.
+   */
+  reviewMultiplier: number
   captionModel: string
   /** Never send this dataset's images to Venice (review and captioning are blocked). Enforced server-side. */
   localOnly: boolean
@@ -54,8 +81,17 @@ export const DEFAULT_SETTINGS: Settings = {
   dedupClipSimilarity: 0.95,
   framingMix: { closeup: 0.4, half: 0.35, full: 0.25 },
   diversity: 0.5,
+  varietyAttributes: {
+    outfit: true,
+    setting: true,
+    expression: true,
+    view: true,
+    lighting: false,
+    camera: false,
+  },
   referenceImageIds: [],
   tagModel: "google-gemma-4-31b-it",
+  reviewMultiplier: 3,
   captionModel: "qwen-3-8-27b",
   localOnly: false,
   privateModelsOnly: true,
@@ -92,15 +128,53 @@ export const HARD_ISSUES: Issue[] = [
   "bad_anatomy",
 ]
 
+export const EXPRESSIONS = [
+  "neutral",
+  "smile",
+  "laugh",
+  "serious",
+  "playful",
+  "surprised",
+  "sad",
+  "other",
+] as const
+export const SETTINGS_KINDS = [
+  "home",
+  "indoor_other",
+  "urban",
+  "nature",
+  "beach_water",
+  "studio",
+  "vehicle",
+  "event",
+  "other",
+] as const
+export const LIGHTING_KINDS = [
+  "daylight",
+  "indoor_natural",
+  "indoor_artificial",
+  "studio",
+  "flash",
+  "golden_hour",
+  "low_light",
+  "mixed",
+] as const
+
+/** Bump when the review schema changes; older reviews are redone. */
+export const TAGS_VERSION = 2
+
 export interface VisionTags {
+  v?: number
   framing: Framing
   view: "front" | "three_quarter" | "profile" | "back"
   camera: "eye_level" | "high" | "low"
   pose: string
-  expression: string
+  expression: (typeof EXPRESSIONS)[number] | string
+  /** Short free text, e.g. "black hoodie, blue jeans"; grouped per dataset into outfit groups. */
   outfit: string
+  setting?: (typeof SETTINGS_KINDS)[number]
   background: string
-  lighting: string
+  lighting: (typeof LIGHTING_KINDS)[number] | string
   issues: Issue[]
   quality: number
   note: string
@@ -154,6 +228,8 @@ export interface ImageRecord {
   override: Override
   caption: string | null
   tags: VisionTags | null
+  /** Outfit group label shared by images with the same outfit (after review). */
+  outfitGroup: string | null
   metrics: ImageMetrics
 }
 

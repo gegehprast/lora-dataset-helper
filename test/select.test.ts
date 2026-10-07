@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { getRow, listRows, saveSettings, toRecord } from "../src/db"
+import { db, getRow, listRows, saveSettings, toRecord } from "../src/db"
 import { runSelection } from "../src/pipeline/select"
 import { near, newDataset, randomVec, seedImage, tags, times } from "./helpers"
 
@@ -309,5 +309,118 @@ describe("picking", () => {
     const pending = seedImage(ds, { analyzed: false })
     expect(runSelection(ds).pending).toBe(1)
     expect(rec(pending).status).toBe("pending")
+  })
+})
+
+describe("variety attributes", () => {
+  // A and B share an outfit; C is a different outfit but scores lower.
+  function setup() {
+    const ds = newDataset()
+    saveSettings(ds, {
+      targetCount: 2,
+      diversity: 1,
+      framingMix: { closeup: 0, half: 1, full: 0 },
+    })
+    const a = seedImage(ds, {
+      faces: [me()],
+      analysis: { aesthetic: 7 },
+      tags: tags({ outfit: "red top" }),
+    })
+    const b = seedImage(ds, {
+      faces: [me()],
+      analysis: { aesthetic: 6.9 },
+      tags: tags({ outfit: "red top" }),
+    })
+    const c = seedImage(ds, {
+      faces: [me()],
+      analysis: { aesthetic: 6.3 },
+      tags: tags({ outfit: "blue dress" }),
+    })
+    return { ds, a, b, c }
+  }
+  const picked = (...ids: number[]) =>
+    ids.map((id) => rec(id).status === "selected")
+
+  test("outfit on: a different outfit beats a slightly better repeat", () => {
+    const { ds, a, b, c } = setup()
+    runSelection(ds)
+    expect(picked(a, b, c)).toEqual([true, false, true])
+  })
+
+  test("outfit off: the better image wins", () => {
+    const { ds, a, b, c } = setup()
+    saveSettings(ds, {
+      varietyAttributes: {
+        outfit: false,
+        setting: true,
+        expression: true,
+        view: true,
+        lighting: false,
+        camera: false,
+      },
+    })
+    runSelection(ds)
+    expect(picked(a, b, c)).toEqual([true, true, false])
+  })
+
+  test("variety slider at 0 ignores attributes", () => {
+    const { ds, a, b, c } = setup()
+    saveSettings(ds, { diversity: 0 })
+    runSelection(ds)
+    expect(picked(a, b, c)).toEqual([true, true, false])
+  })
+
+  test("outfit groups count as the same outfit", () => {
+    const { ds, a, b, c } = setup()
+    // C's text differs, but grouping says it's the same outfit as A; B is now the odd one out.
+    db.query(
+      "UPDATE images SET outfit_group = 'red top' WHERE id IN (?, ?)",
+    ).run(a, c)
+    db.query("UPDATE images SET outfit_group = 'green coat' WHERE id = ?").run(
+      b,
+    )
+    runSelection(ds)
+    expect(picked(a, b, c)).toEqual([true, true, false])
+  })
+
+  test("unreviewed images aren't treated as unique", () => {
+    const ds = newDataset()
+    saveSettings(ds, {
+      targetCount: 2,
+      diversity: 1,
+      framingMix: { closeup: 0, half: 1, full: 0 },
+    })
+    const a = seedImage(ds, {
+      faces: [me({ height: 0.15 })],
+      analysis: { aesthetic: 7 },
+      tags: tags({ outfit: "red top" }),
+    })
+    const b = seedImage(ds, {
+      faces: [me({ height: 0.15 })],
+      analysis: { aesthetic: 6.9 },
+      tags: tags({ outfit: "red top" }),
+    })
+    // Unreviewed, much lower local score: without the expected-repetition rule it would
+    // dodge every penalty and beat B.
+    const u = seedImage(ds, {
+      faces: [me({ height: 0.15 })],
+      analysis: { aesthetic: 5 },
+    })
+    runSelection(ds)
+    expect(picked(a, b, u)).toEqual([true, true, false])
+  })
+})
+
+describe("scoring scale", () => {
+  test("unreviewed images are scored with the dataset's average review quality", () => {
+    const ds = newDataset()
+    const reviewed = seedImage(ds, {
+      faces: [me()],
+      tags: tags({ quality: 7 }),
+    })
+    const unreviewed = seedImage(ds, { faces: [me()] })
+    runSelection(ds)
+    // Same local metrics, and the assumed quality equals the only review: same score.
+    expect(rec(unreviewed).score).toBeCloseTo(rec(reviewed).score ?? 0, 6)
   })
 })

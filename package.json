@@ -1,27 +1,27 @@
 {
-  "name": "lora-dataset-helper",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "bun --hot src/server.ts",
-    "start": "NODE_ENV=production bun src/server.ts",
-    "setup:worker": "bash scripts/setup-worker.sh",
-    "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "lint": "biome check .",
-    "format": "biome check --write .",
-    "check": "tsc --noEmit && biome check . && bun test"
-  },
-  "dependencies": {
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "sharp": "^0.35.5"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.5.15",
-    "@types/bun": "^1.4.2",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "typescript": "^7.0.2"
-  }
+    "name": "lora-dataset-helper",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "bun --hot src/server.ts",
+        "start": "NODE_ENV=production bun src/server.ts",
+        "setup:worker": "bash scripts/setup-worker.sh",
+        "typecheck": "tsc --noEmit",
+        "test": "bun test",
+        "lint": "biome check .",
+        "format": "biome check --write .",
+        "check": "tsc --noEmit && biome check . && bun test"
+    },
+    "dependencies": {
+        "react": "^19.3.0",
+        "react-dom": "^19.3.0",
+        "sharp": "^0.35.5"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "2.5.15",
+        "@types/bun": "^1.4.2",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "typescript": "^7.0.2"
+    }
 }

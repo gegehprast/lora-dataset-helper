@@ -117,7 +117,7 @@ export async function scanDataset(dataset: string, ctx: JobContext) {
   const reset =
     db.query(`UPDATE images SET file_hash = ?, size = ?, mtime = ?, width = NULL, height = NULL,
     analysis = NULL, clip_emb = NULL, face_embs = NULL, tags = NULL, tags_model = NULL, status = 'pending',
-    score = NULL, reasons = '[]', framing = NULL, dup_of = NULL, identity = NULL, main_face = NULL,
+    score = NULL, reasons = '[]', framing = NULL, dup_of = NULL, identity = NULL, main_face = NULL, outfit_group = NULL,
     caption = NULL, caption_model = NULL WHERE id = ?`)
 
   let added = 0

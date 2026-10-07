@@ -103,7 +103,8 @@ interface ChatOptions {
   model: string
   system: string
   prompt: string
-  imagePath: string
+  /** Image to attach. Omit for a text-only request. */
+  imagePath?: string
   schema?: { name: string; schema: object }
   maxTokens?: number
   /** Refuse to send the image unless Venice marks the model as private. */
@@ -124,10 +125,14 @@ async function chat(opts: ChatOptions): Promise<string> {
         role: "user",
         content: [
           { type: "text", text: opts.prompt },
-          {
-            type: "image_url",
-            image_url: { url: await imageDataUrl(opts.imagePath) },
-          },
+          ...(opts.imagePath
+            ? [
+                {
+                  type: "image_url",
+                  image_url: { url: await imageDataUrl(opts.imagePath) },
+                },
+              ]
+            : []),
         ],
       },
     ],

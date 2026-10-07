@@ -52,7 +52,7 @@ You can rerun any step. Results are cached, so only new or changed images are pr
 | Step | What it does | Runs on |
 |---|---|---|
 | **1. Scan & analyze** | Finds images, makes thumbnails, then measures resolution, sharpness, exposure, faces (who, where, how sharp, head angle), visual similarity and an aesthetic score. Finishes with a first selection. | Your computer |
-| **2. Review with Venice** | Sends every image that passed step 1's checks to a vision model. It reports framing, view, pose, expression, outfit, background, lighting, problems, and a 1–10 quality rating. The selection is then redone using this information. | **Venice** |
+| **2. Review with Venice** | Sends the best candidates from step 1 to a vision model (see *Review limit*). It reports framing, view, camera angle, pose, expression, outfit, setting, lighting, problems, and a 1–10 quality rating. If a reviewed image gets rejected and an unreviewed one takes its place, that one is reviewed too, until every selected image has a review. Finally the outfit descriptions (text only, no images) are grouped so the same clothes count as one outfit. The selection is then redone. | **Venice** |
 | **3. Caption** | Writes a caption for each **selected** image. *Caption missing* skips images that already have one; *Redo all* replaces every caption, including your edits. | **Venice** |
 | **4. Export** | Copies images into `data/output/<dataset>/`. | Your computer |
 
@@ -87,7 +87,9 @@ Sort by **Score** (best first) or **Name**.
 
 ### The summary bar
 
-Shows how many images are selected out of the target, the count per framing against its quota (for example `9/12` close-ups), and the spread of views (front, three-quarter, profile, back).
+Shows how many images are selected out of the target, and the count per framing against its quota (for example `9/12` close-ups).
+
+**Variety of the selection** lists, for each review attribute (outfit, setting, expression, view, lighting, camera angle), how many different values the selected images have and the most common one. A ⚠ marks a value used by more than 40% of the selection (once at least 5 images are reviewed). A LoRA learns whatever repeats, so *"black hoodie + jeans ×14 ⚠"* means it may learn the hoodie as part of the person. Add images in other outfits, or turn on *Outfit* under *Spread variety across*. Attributes marked *(not balanced)* are shown but not used by the selection.
 
 ### Detail view
 
@@ -119,7 +121,8 @@ Settings are saved per dataset. Changing a selection or filter setting redoes th
 | Setting | Default | Notes |
 |---|---|---|
 | Target images | 30 | 20–40 is typical for a character LoRA. |
-| Variety vs quality | 50% | 0% takes the highest scores. Higher values prefer images that look different from those already picked (other outfits, places, angles). |
+| Variety vs quality | 50% | 0% takes the highest scores. Higher values prefer images that look different from those already picked, and that don't repeat the attributes chosen below. |
+| Spread variety across | outfit, setting, expression, view | Attributes from the AI review whose repetition the selection avoids. Turn one off if it doesn't matter for this character (e.g. outfit, for a character who always wears a uniform). Lighting and camera angle are off by default. |
 | Framing mix | 0.40 / 0.35 / 0.25 | Share of close-up / half body / full body. Values are relative and don't need to add up to 1. If there aren't enough of one kind, the rest of the target is filled with others. |
 
 ### Filters
@@ -139,6 +142,7 @@ Settings are saved per dataset. Changing a selection or filter setting redoes th
 | Setting | Default | Notes |
 |---|---|---|
 | Local only | off | Never send this dataset's images to Venice. The server blocks review and captioning for it (including **Run 1 + 2**, which then runs step 1 only); captions can still be written by hand. Use it for images that must stay on your computer. |
+| Review limit | 3 × target | Review the best *limit × target* candidates by local score (90 for a target of 30), plus any replacements needed. Saves money on big folders. 0 reviews every candidate. Pinned images are always reviewed. |
 | Review model | `google-gemma-4-31b-it` | Used for step 2. The list shows only models that accept images, with the price per million input/output tokens. 🔒 marks models Venice labels **private**. Models marked *no JSON mode* work but are less reliable for the review. Models marked *E2EE* need end-to-end encryption, which the app doesn't support yet, so they can't be chosen. |
 | Caption model | `qwen-3-8-27b` | Used for step 3. |
 | Private models only | on | Shows only 🔒 private models and makes the server refuse to send images to any other model. Turn it off to see the *anonymized* models too. |
@@ -171,6 +175,8 @@ Venice labels every model either **private** (Venice runs it and keeps no prompt
 | Not picked (reserve) | Passed every check but wasn't needed for the target | Raise the target, or pin it |
 
 Less serious problems the AI reports (blur, noise, bad lighting, cropped limbs, sunglasses, odd crop) don't reject an image. They lower its score instead.
+
+Images that haven't been reviewed yet are scored as if their AI rating were the average rating of the reviewed images in the dataset, so reviewed and unreviewed images compete fairly.
 
 ## Captions
 

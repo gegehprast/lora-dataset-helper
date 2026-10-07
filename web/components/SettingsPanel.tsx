@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react"
-import type { Framing, Settings, VeniceModel } from "../../src/types"
+import {
+  type Framing,
+  type Settings,
+  VARIETY_ATTRIBUTES,
+  VARIETY_LABELS,
+  type VeniceModel,
+} from "../../src/types"
 import { api } from "../api"
 
 interface Props {
@@ -203,6 +209,31 @@ export function SettingsPanel({ settings, onChange }: Props) {
             ))}
           </div>
         </div>
+        <div className="field">
+          <span>Spread variety across</span>
+          <div className="checks">
+            {VARIETY_ATTRIBUTES.map((a) => (
+              <label key={a} className="check">
+                <input
+                  type="checkbox"
+                  checked={draft.varietyAttributes[a]}
+                  onChange={(e) =>
+                    set(
+                      "varietyAttributes",
+                      { ...draft.varietyAttributes, [a]: e.target.checked },
+                      0,
+                    )
+                  }
+                />
+                {VARIETY_LABELS[a]}
+              </label>
+            ))}
+          </div>
+          <small>
+            Avoids picking many images with the same value. Uses the AI review;
+            the variety slider sets how strongly it counts.
+          </small>
+        </div>
       </fieldset>
 
       <fieldset>
@@ -285,6 +316,12 @@ export function SettingsPanel({ settings, onChange }: Props) {
           Private models only. Images are only sent to models Venice marks 🔒
           private (no prompts or images kept).
         </label>
+        {num("reviewMultiplier", "Review limit (× target)", {
+          min: 0,
+          max: 20,
+          step: 0.5,
+          hint: `Review the best ${draft.reviewMultiplier > 0 ? Math.ceil(draft.reviewMultiplier * draft.targetCount) : "(all)"} candidates by local score, plus replacements when needed. 0 = review every candidate.`,
+        })}
         {num("concurrency", "Parallel requests", { min: 1, max: 16 })}
       </fieldset>
 

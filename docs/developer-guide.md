@@ -144,6 +144,7 @@ SQLite at `data/.cache/app.sqlite` (WAL mode). Created on startup in `src/db.ts`
 | `score`, `reasons`, `framing`, `dup_of`, `identity`, `main_face` | select | `reasons` is a JSON array of codes; `main_face` indexes `analysis.faces` |
 | `override` | UI | `include` · `exclude` · NULL |
 | `caption`, `caption_model` | caption / UI | |
+| `outfit_group` | tag (`groupOutfits`) | Label shared by images in the same outfit. Added by `addColumn()` on older databases. |
 
 `toRecord()` turns a row into the `ImageRecord` the UI uses. Embeddings never leave the server.
 
@@ -161,11 +162,15 @@ Sends rows with `analysis IS NULL` to the worker in batches of 8, after a `load`
 
 ### tag (`pipeline/tag.ts`)
 
-1. Runs `runSelection()` using local data only.
-2. Reviews images whose status is `selected` or `reserve` (passed local checks and aren't duplicates), plus pinned images, that lack tags from the current `tagModel`. Reviewing the reserve too means images promoted later already have tags.
-3. Sends a structured-output request (`TAG_SCHEMA`) through `chatJson()`, then cleans the result: unknown issues are dropped and quality is clamped to 1–10.
-4. If the first 3 requests all fail, aborts the job. Later failures are counted and logged.
-5. Runs `runSelection()` again.
+1. Runs `runSelection()`. Candidates are images with status `selected` or `reserve` (passed the local checks and aren't duplicates) plus pinned images.
+2. **First round:** reviews the best `ceil(reviewMultiplier × targetCount)` candidates by score, plus every pinned one, that lack an up-to-date review. A review is up to date when it's from the current `tagModel` and has `v == TAGS_VERSION`. `reviewMultiplier: 0` means every candidate.
+3. **Replacement rounds:** re-selects. Any *selected* image still lacking a review, not yet attempted in this run, gets reviewed. Repeats (at most 20 rounds) until every selected image is reviewed. Failed images aren't retried in the same run, so the loop always ends.
+4. Each review is a structured-output request (`TAG_SCHEMA`) through `chatJson()`. The result is cleaned (unknown issues dropped, quality clamped to 1–10) and stamped with `v: TAGS_VERSION`.
+5. If the first 3 requests all fail, the job aborts. Later failures are counted and logged.
+6. **Outfit grouping** (`groupOutfits`): collects the normalized outfit descriptions of every reviewed image in the dataset. If there are 2–400 distinct ones, it sends them as a numbered list in **one text-only request** (no images) to the review model, asking for groups of the same outfit. Each image's `outfit_group` is set to its group's label. If the request fails, or there are too many, the normalized description is used instead and the job message says so.
+7. Runs `runSelection()` again.
+
+Bump `TAGS_VERSION` in `types.ts` whenever `TAG_SCHEMA` changes in a way the selection depends on. Older reviews are then redone on the next run.
 
 ### select (`pipeline/select.ts`)
 
@@ -212,20 +217,22 @@ aesthetic = clamp((laion - 4) / 3)
 sharp     = clamp(log(faceSharpness / minFaceSharpness) / log 8)     // image sharpness / 50 if no face
 res       = clamp(shortSide / preferredShortSide)
 ident     = clamp((identity - threshold) / (0.75 - threshold))
-quality   = (tags.quality - 1) / 9
+quality   = (tags.quality - 1) / 9        // unreviewed: mean quality of the dataset's reviewed images (0.6 if none)
 
-with tags:    0.25·aesthetic + 0.20·sharp + 0.10·res + 0.15·ident + 0.30·quality
-without tags: 0.40·aesthetic + 0.30·sharp + 0.15·res + 0.15·ident
-then − 0.05 per non-hard issue
+score = 0.25·aesthetic + 0.20·sharp + 0.10·res + 0.15·ident + 0.30·quality − 0.05 per non-hard issue
 ```
+
+Every image uses the same formula. Unreviewed images get the dataset's average review quality. If they used a separate local-only formula, they would land on a different scale and keep displacing reviewed images, so every replacement round would trigger more reviews.
 
 **5. Dedup.** Go through the images that passed (and pinned ones) from pinned first, then by score. An image is a `duplicate` of the first kept image within `dedupPhashDistance` (64-bit pHash Hamming distance) or `dedupClipSimilarity` (CLIP cosine). Pinned images are never marked duplicate.
 
 **6. Diverse pick.** Start with the pinned images. Each framing gets a quota of `round(target · mix / Σmix)`. Repeat until the target is reached:
 - consider candidates whose framing quota isn't full (or all candidates if none qualify);
-- take the one with the highest `score − diversity · (redundancy + 0.3 · viewShare)`, where
-  - `redundancy = clamp((maxCLIPSim to selected − 0.6) / 0.35)`
-  - `viewShare` = fraction of the selected images with the same view.
+- take the one with the highest `score − diversity · (redundancy + 0.3 · repetition)`, where
+  - `redundancy = clamp((maxCLIPSim to selected − 0.6) / 0.35)`;
+  - `repetition` = for each attribute enabled in `varietyAttributes`, the share of selected images with the same value, summed.
+    - Values come from the review: `outfit_group` (falling back to the outfit text), `setting`, `expression`, `view` (falling back to head yaw), `lighting`, `camera`.
+    - An unknown value (not reviewed yet) counts as the *expected* share, Σ(share of each known value)². Otherwise unreviewed images would look unique and win every tie, triggering more reviews.
 
 Unpicked candidates become `reserve` with reason `not_selected`.
 

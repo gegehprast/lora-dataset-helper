@@ -1,6 +1,12 @@
 import { db } from "../src/db"
 import type { JobContext } from "../src/jobs"
-import type { Analysis, FaceInfo, Override, VisionTags } from "../src/types"
+import {
+  type Analysis,
+  type FaceInfo,
+  type Override,
+  TAGS_VERSION,
+  type VisionTags,
+} from "../src/types"
 
 /** Deterministic PRNG so tests are repeatable. */
 export function rng(seed: number) {
@@ -64,12 +70,14 @@ export function face(
 
 export function tags(over: Partial<VisionTags> = {}): VisionTags {
   return {
+    v: TAGS_VERSION,
     framing: "half",
     view: "front",
     camera: "eye_level",
     pose: "standing",
-    expression: "smiling",
+    expression: "smile",
     outfit: "t-shirt",
+    setting: "nature",
     background: "park",
     lighting: "daylight",
     issues: [],

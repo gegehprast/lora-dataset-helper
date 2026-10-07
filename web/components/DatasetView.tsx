@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import type {
-  Framing,
-  ImageRecord,
-  ImageStatus,
-  JobKind,
-  JobState,
-  Override,
-  Settings,
+import {
+  type Framing,
+  type ImageRecord,
+  type ImageStatus,
+  type JobKind,
+  type JobState,
+  type Override,
+  type Settings,
+  VARIETY_ATTRIBUTES,
+  VARIETY_LABELS,
+  type VarietyAttribute,
 } from "../../src/types"
 import { api, type DatasetData } from "../api"
 import { ImageDetail } from "./ImageDetail"
@@ -361,11 +364,6 @@ function SelectionStats({
 }) {
   if (!selected.length) return null
   const mixTotal = FRAMINGS.reduce((a, f) => a + settings.framingMix[f], 0) || 1
-  const views = new Map<string, number>()
-  for (const im of selected) {
-    const v = im.tags?.view ?? "unknown"
-    views.set(v, (views.get(v) ?? 0) + 1)
-  }
   return (
     <div className="stats">
       <div className="stat">
@@ -389,16 +387,77 @@ function SelectionStats({
           <span className="stat-label">{FRAMING_LABEL[f]}</span>
         </div>
       ))}
-      <div className="stat views">
-        <span className="stat-label">Views</span>
-        <span>
-          {[...views.entries()].map(([v, n]) => (
-            <span key={v} className="chip">
-              {v.replace("_", " ")} {n}
-            </span>
-          ))}
+      <VarietySummary selected={selected} settings={settings} />
+    </div>
+  )
+}
+
+/** Share above which one value is flagged as dominating the selection. */
+const DOMINANT_SHARE = 0.4
+
+function attributeValue(im: ImageRecord, a: VarietyAttribute): string | null {
+  const t = im.tags
+  if (!t) return null
+  if (a === "outfit") return im.outfitGroup ?? (t.outfit || null)
+  return (t[a] as string | undefined) ?? null
+}
+
+function VarietySummary({
+  selected,
+  settings,
+}: {
+  selected: ImageRecord[]
+  settings: Settings
+}) {
+  const reviewed = selected.filter((im) => im.tags).length
+  return (
+    <div className="stat variety">
+      <span className="stat-label">
+        Variety of the selection
+        {reviewed < selected.length &&
+          ` (${selected.length - reviewed} not reviewed yet)`}
+      </span>
+      {reviewed === 0 ? (
+        <span className="muted small-text">
+          Run the AI review to see outfits, settings and expressions.
         </span>
-      </div>
+      ) : (
+        <ul>
+          {VARIETY_ATTRIBUTES.map((a) => {
+            const counts = new Map<string, number>()
+            for (const im of selected) {
+              const v = attributeValue(im, a)
+              if (v) counts.set(v, (counts.get(v) ?? 0) + 1)
+            }
+            const known = [...counts.values()].reduce((x, y) => x + y, 0)
+            const [top, topN] = [...counts.entries()].sort(
+              (x, y) => y[1] - x[1],
+            )[0] ?? ["", 0]
+            const dominant = known >= 5 && topN / known > DOMINANT_SHARE
+            const on = settings.varietyAttributes[a]
+            return (
+              <li key={a} className={on ? "" : "off"}>
+                <span className="variety-name">
+                  {VARIETY_LABELS[a]}
+                  {!on && <small> (not balanced)</small>}
+                </span>
+                <span>
+                  {counts.size} {counts.size === 1 ? "kind" : "kinds"}
+                  {top && (
+                    <>
+                      {" · most: "}
+                      <span className={dominant ? "warn-text" : ""}>
+                        {top.replaceAll("_", " ")} ×{topN}
+                        {dominant && " ⚠"}
+                      </span>
+                    </>
+                  )}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }

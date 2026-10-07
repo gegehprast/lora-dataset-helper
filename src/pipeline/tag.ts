@@ -2,11 +2,11 @@ import { join } from "node:path";
 import { db, getSettings } from "../db";
 import { pool, type JobContext } from "../jobs";
 import { ISSUES, type VisionTags } from "../types";
-import { chatJson } from "../venice";
+import { chatJson, checkModel } from "../venice";
 import { datasetDir } from "./scan";
 import { runSelection } from "./select";
 
-const TAG_SCHEMA = {
+export const TAG_SCHEMA = {
   name: "image_assessment",
   schema: {
     type: "object",
@@ -28,9 +28,9 @@ const TAG_SCHEMA = {
   },
 };
 
-const SYSTEM = `You are a meticulous photo editor curating a training dataset for a character LoRA, a model that learns one specific person's likeness. Assess each image objectively and strictly. Reply with a single JSON object and nothing else.`;
+export const SYSTEM = `You are a meticulous photo editor curating a training dataset for a character LoRA, a model that learns one specific person's likeness. Assess each image objectively and strictly. Reply with a single JSON object and nothing else.`;
 
-const PROMPT = `Assess this photo of the main subject. Fields:
+export const PROMPT = `Assess this photo of the main subject. Fields:
 - framing: "closeup" (head and shoulders), "half" (waist or mid-thigh up), "full" (most of the body, knees or lower visible).
 - view: which way the subject's face/body is turned relative to the camera.
 - camera: camera height relative to the subject.
@@ -62,6 +62,7 @@ export async function tagDataset(dataset: string, ctx: JobContext) {
     .all(dataset, s.tagModel);
   if (!todo.length) return "Nothing new to tag";
 
+  await checkModel(s.tagModel, s.privateModelsOnly);
   ctx.stage(`Tagging with ${s.tagModel}`, todo.length);
   const save = db.query("UPDATE images SET tags = ?, tags_model = ? WHERE id = ?");
   const errors: string[] = [];
@@ -74,6 +75,7 @@ export async function tagDataset(dataset: string, ctx: JobContext) {
         prompt: PROMPT,
         imagePath: join(dir, row.rel_path),
         schema: TAG_SCHEMA,
+        requirePrivate: s.privateModelsOnly,
       });
       tags.issues = (tags.issues ?? []).filter((i) => (ISSUES as readonly string[]).includes(i));
       tags.quality = Math.min(10, Math.max(1, Math.round(Number(tags.quality) || 5)));

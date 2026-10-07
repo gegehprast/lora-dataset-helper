@@ -77,19 +77,32 @@ export interface ImageRow {
 
 // ---------- datasets ----------
 
-export function getSettings(dataset: string): Settings {
+function storedSettings(dataset: string): Partial<Settings> {
   const row = db.query<{ settings: string }, [string]>("SELECT settings FROM datasets WHERE name = ?").get(dataset);
-  const stored = row ? (JSON.parse(row.settings) as Partial<Settings>) : {};
+  return row ? (JSON.parse(row.settings) as Partial<Settings>) : {};
+}
+
+/** Stored values over the current defaults. */
+export function getSettings(dataset: string): Settings {
+  const stored = storedSettings(dataset);
   return { ...DEFAULT_SETTINGS, ...stored, framingMix: { ...DEFAULT_SETTINGS.framingMix, ...stored.framingMix } };
 }
 
+/**
+ * Persists only values that differ from the defaults, so a dataset keeps following the defaults
+ * (e.g. a new default model) for everything the user never changed.
+ */
 export function saveSettings(dataset: string, patch: Partial<Settings>): Settings {
-  const next = { ...getSettings(dataset), ...patch };
+  const merged: Record<string, unknown> = { ...storedSettings(dataset), ...patch };
+  for (const key of Object.keys(merged)) {
+    const isDefault = JSON.stringify(merged[key]) === JSON.stringify(DEFAULT_SETTINGS[key as keyof Settings]);
+    if (!(key in DEFAULT_SETTINGS) || isDefault) delete merged[key];
+  }
   db.query("INSERT INTO datasets (name, settings) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET settings = excluded.settings").run(
     dataset,
-    JSON.stringify(next),
+    JSON.stringify(merged),
   );
-  return next;
+  return getSettings(dataset);
 }
 
 // ---------- images ----------

@@ -30,6 +30,8 @@ export interface Settings {
   referenceImageIds: number[];
   tagModel: string;
   captionModel: string;
+  /** Only send images to models Venice marks as private. Enforced server-side. */
+  privateModelsOnly: boolean;
   captionStyle: CaptionStyle;
   /** Hair can change between photos; describe it so it doesn't get baked into the trigger. */
   captionDescribeHair: boolean;
@@ -51,8 +53,9 @@ export const DEFAULT_SETTINGS: Settings = {
   framingMix: { closeup: 0.4, half: 0.35, full: 0.25 },
   diversity: 0.5,
   referenceImageIds: [],
-  tagModel: "qwen-3-8-flash",
+  tagModel: "google-gemma-4-31b-it",
   captionModel: "qwen-3-8-27b",
+  privateModelsOnly: true,
   captionStyle: "natural",
   captionDescribeHair: true,
   captionInstructions: "",
@@ -177,7 +180,12 @@ export interface JobState {
 
 export interface VeniceModel {
   id: string;
+  name: string;
+  /** Venice's label: "private" (no data retained) or "anonymized" (third-party provider). */
+  privacy: string | null;
   vision: boolean;
+  /** Needs client-side end-to-end encryption, which the app doesn't implement. */
+  e2ee: boolean;
   schema: boolean;
   priceIn: number | null;
   priceOut: number | null;

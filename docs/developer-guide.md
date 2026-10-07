@@ -112,7 +112,7 @@ SQLite at `data/.cache/app.sqlite` (WAL mode). Created on startup in `src/db.ts`
 | Column | Notes |
 |---|---|
 | `name` | Folder name under `data/input/` |
-| `settings` | JSON `Partial<Settings>`, merged over `DEFAULT_SETTINGS` by `getSettings()` |
+| `settings` | JSON `Partial<Settings>` holding **only values that differ from `DEFAULT_SETTINGS`** (and only known keys). `getSettings()` merges them over the defaults, so changing a default reaches every dataset that didn't override it. |
 
 ### `images`
 
@@ -244,10 +244,11 @@ The weights and constants are first guesses, checked only on a 30-image set. The
 
 `src/venice.ts` uses plain `fetch` against the OpenAI-compatible API.
 
-- `listVisionModels()`: `GET /models?type=text`, keeps `supportsVision`, notes `supportsResponseSchema`, cached for 10 minutes.
+- `listVisionModels()`: `GET /models?type=text`, keeps `supportsVision`, records `model_spec.privacy` (`"private"` / `"anonymized"`), `supportsResponseSchema` and `supportsE2EE`. Cached for 10 minutes.
+- `checkModel(model, requirePrivate)`: runs before every request, and once at the start of the tag and caption stages. With `requirePrivate` (the `privateModelsOnly` setting) it **fails closed**: it throws if the model list can't be fetched or the model isn't marked private. It always rejects E2EE models, because the `enable_e2ee` client-side encryption isn't implemented.
 - `chat()`: sends a system prompt plus a user message with text and a `data:` JPEG. The image is resized by `sharp` to fit in 1024 px, EXIF-rotated, quality 88.
   - Always sends `venice_parameters: { include_venice_system_prompt: false, disable_thinking: true, strip_thinking_response: true }`, and also removes `<think>` blocks itself.
-  - Adds `response_format: { type: "json_schema", json_schema: { name, schema, strict: true } }` only when the model supports it.
+  - Adds `response_format: { type: "json_schema", json_schema: { name, schema, strict: true } }` only when the model supports it. Without JSON mode, integer ranges aren't enforced, which is why `tag.ts` clamps `quality`.
   - Retries 429 and 5xx up to 4 times with exponential backoff, honouring `Retry-After`.
 - `chatJson()` parses the first `{…}` block in the reply, so models without JSON mode still work most of the time.
 
@@ -310,7 +311,7 @@ React 19, bundled by Bun's HTML imports, so there's no Vite or separate build st
 
 ## Known gaps
 
-- **The Venice review and captioning have not been run against the live API yet.** The request format follows Venice's documentation, but expect to adjust prompts and parsing after the first real run.
+- The Venice review and caption prompts have been checked against the live API only with a synthetic illustration (private models: gemma-4-31b-it, gemma-4-uncensored, mistral-small-3.2, qwen3-vl-235b, qwen-3-8-27b), not with real photo datasets. Expect to tune the prompts after real runs.
 - No automated tests. `select.ts` is the best first candidate: it can be tested by seeding an in-memory DB with synthetic analyses and embeddings.
 - No schema migrations.
 - Job state isn't saved across restarts.

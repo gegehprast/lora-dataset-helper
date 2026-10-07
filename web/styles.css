@@ -729,3 +729,21 @@ legend {
     max-height: 50vh;
   }
 }
+
+.privacy {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.privacy.private {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.privacy.anon {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.field small.warn-text {
+  color: var(--warn);
+}

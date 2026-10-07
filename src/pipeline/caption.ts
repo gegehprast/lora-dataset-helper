@@ -2,12 +2,12 @@ import { join } from "node:path";
 import { db, getRow, getSettings, setCaption } from "../db";
 import { pool, type JobContext } from "../jobs";
 import type { Settings } from "../types";
-import { chatText } from "../venice";
+import { chatText, checkModel } from "../venice";
 import { datasetDir } from "./scan";
 
-const SYSTEM = `You write training captions for a character LoRA: a fine-tune that teaches a text-to-image model one specific person. Good captions describe everything that changes from photo to photo and leave out the person's permanent features, so those get learned under the person's name. Output only the caption.`;
+export const CAPTION_SYSTEM = `You write training captions for a character LoRA: a fine-tune that teaches a text-to-image model one specific person. Good captions describe everything that changes from photo to photo and leave out the person's permanent features, so those get learned under the person's name. Output only the caption.`;
 
-function buildPrompt(s: Settings): string {
+export function buildPrompt(s: Settings): string {
   const name = s.triggerWord.trim() || "the person";
   const fixed = ["face shape and facial features", "eye color", "skin tone", "ethnicity", "age", "body type"];
   if (!s.captionDescribeHair) fixed.push("hair color and hairstyle");
@@ -57,10 +57,11 @@ export async function captionImage(id: number): Promise<string> {
   const s = getSettings(row.dataset);
   const text = await chatText({
     model: s.captionModel,
-    system: SYSTEM,
+    system: CAPTION_SYSTEM,
     prompt: buildPrompt(s),
     imagePath: join(datasetDir(row.dataset), row.rel_path),
     maxTokens: 400,
+    requirePrivate: s.privateModelsOnly,
   });
   const caption = clean(text, s);
   if (!caption) throw new Error("Model returned an empty caption");
@@ -80,6 +81,7 @@ export async function captionDataset(dataset: string, ctx: JobContext, overwrite
     .all(dataset);
   if (!todo.length) return "All selected images already have captions";
 
+  await checkModel(s.captionModel, s.privateModelsOnly);
   ctx.stage(`Captioning with ${s.captionModel}`, todo.length);
   const errors: string[] = [];
   let ok = 0;

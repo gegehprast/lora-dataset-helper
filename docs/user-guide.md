@@ -138,9 +138,12 @@ Settings are saved per dataset. Changing a selection or filter setting redoes th
 
 | Setting | Default | Notes |
 |---|---|---|
-| Review model | `qwen-3-8-flash` | Used for step 2. The list shows only models that accept images, with the price per million input/output tokens. Models marked *no JSON mode* work but are less reliable for the review. |
+| Review model | `google-gemma-4-31b-it` | Used for step 2. The list shows only models that accept images, with the price per million input/output tokens. 🔒 marks models Venice labels **private**. Models marked *no JSON mode* work but are less reliable for the review. Models marked *E2EE* need end-to-end encryption, which the app doesn't support yet, so they can't be chosen. |
 | Caption model | `qwen-3-8-27b` | Used for step 3. |
+| Private models only | on | Shows only 🔒 private models and makes the server refuse to send images to any other model. Turn it off to see the *anonymized* models too. |
 | Parallel requests | 4 | Lower it if you get rate-limit errors. |
+
+Venice labels every model either **private** (Venice runs it and keeps no prompts or images) or **anonymized** (the request goes to a third-party provider without your identity, and that provider's data policy applies). The label is shown next to each model selector.
 
 ### Captions
 
@@ -208,7 +211,7 @@ data/output/<dataset>/
 | **Step 3 (caption)** | The same kind of downscaled copy, for **selected** images only |
 | Model weights | Downloaded once from Hugging Face and GitHub; nothing is uploaded |
 
-Venice's own system prompt is turned off for these requests. To keep a dataset fully offline, use only steps 1 and 4 and write captions by hand in the detail view.
+With **Private models only** on (the default), images are only sent to models Venice marks private. If the app can't confirm a model is private, for example because the model list didn't load, it sends nothing. Venice's own system prompt is turned off for these requests. To keep a dataset fully offline, use only steps 1 and 4 and write captions by hand in the detail view.
 
 ## Costs
 
@@ -224,6 +227,7 @@ Only steps 2 and 3 cost money, billed by Venice per token. A downscaled image is
 | "Venice requests are failing: …" | The first requests all failed, so the step stopped. Usually the key is wrong, the model id no longer exists, or you're out of credit. The message includes Venice's reply. |
 | Some images failed to review or caption | The step summary and the server log list them. Run the step again; only missing ones are retried. |
 | "Set a trigger word…" | Enter a trigger word in Settings before captioning. |
+| "… is anonymized on Venice" / a model selector shows a warning | The chosen model isn't private. Pick a 🔒 model, or turn off *Private models only*. |
 | Almost everything is "Different person" | The automatic identity picked someone else. Set identity references. |
 | Nearly everything is selected | The folder has fewer good images than the target. Lower *Target images*, or add images. |
 | A new dataset folder doesn't appear | Click **Refresh** on the dataset list. Folder names starting with `.` are ignored. |

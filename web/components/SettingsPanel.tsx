@@ -50,23 +50,47 @@ export function SettingsPanel({ settings, onChange }: Props) {
     </label>
   );
 
+  const modelLabel = (m: VeniceModel) =>
+    `${m.privacy === "private" ? "🔒 " : ""}${m.id}` +
+    (m.priceIn != null ? ` — $${m.priceIn}/$${m.priceOut} per M` : "") +
+    (m.schema ? "" : " · no JSON mode") +
+    (m.e2ee ? " · E2EE, not supported" : "");
+
   const modelSelect = (key: "tagModel" | "captionModel", label: string, hint: string) => {
     const current = draft[key];
     const list = models ?? [];
+    const info = list.find((m) => m.id === current);
+    const priv = list.filter((m) => m.privacy === "private");
+    const anon = list.filter((m) => m.privacy !== "private");
+    const option = (m: VeniceModel) => (
+      <option key={m.id} value={m.id} disabled={m.e2ee}>
+        {modelLabel(m)}
+      </option>
+    );
+    const blocked = models && (!info || (draft.privateModelsOnly && info.privacy !== "private") || info.e2ee);
     return (
       <label className="field">
-        <span>{label}</span>
+        <span>
+          {label}{" "}
+          {info && <span className={`privacy ${info.privacy === "private" ? "private" : "anon"}`}>{info.privacy ?? "unknown"}</span>}
+        </span>
         <select value={current} onChange={(e) => set(key, e.target.value, 0)}>
-          {!list.some((m) => m.id === current) && <option value={current}>{current}</option>}
-          {list.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.id}
-              {m.priceIn != null ? ` — $${m.priceIn}/$${m.priceOut} per M` : ""}
-              {m.schema ? "" : " (no JSON mode)"}
-            </option>
-          ))}
+          {!info && <option value={current}>{current} (not available)</option>}
+          {info && draft.privateModelsOnly && info.privacy !== "private" && <option value={current}>{modelLabel(info)}</option>}
+          <optgroup label="Private: Venice keeps no data">{priv.map(option)}</optgroup>
+          {!draft.privateModelsOnly && <optgroup label="Anonymized: sent to a third-party provider">{anon.map(option)}</optgroup>}
         </select>
-        <small>{hint}</small>
+        {blocked ? (
+          <small className="warn-text">
+            {!info
+              ? "This model isn't in Venice's vision model list. Pick another."
+              : info.e2ee
+                ? "This model needs end-to-end encryption, which isn't supported yet."
+                : "Not a private model, so requests will be refused. Pick a 🔒 model."}
+          </small>
+        ) : (
+          <small>{hint}</small>
+        )}
       </label>
     );
   };
@@ -137,6 +161,10 @@ export function SettingsPanel({ settings, onChange }: Props) {
         {modelError && <div className="banner error small">{modelError}</div>}
         {modelSelect("tagModel", "Review model", "Rates every image that passes the local filters. A cheap model is fine.")}
         {modelSelect("captionModel", "Caption model", "Only selected images are captioned.")}
+        <label className="check">
+          <input type="checkbox" checked={draft.privateModelsOnly} onChange={(e) => set("privateModelsOnly", e.target.checked, 0)} />
+          Private models only. Images are only sent to models Venice marks 🔒 private (no prompts or images kept).
+        </label>
         {num("concurrency", "Parallel requests", { min: 1, max: 16 })}
       </fieldset>
 

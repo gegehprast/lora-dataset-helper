@@ -12,13 +12,19 @@ export async function listVisionModels(): Promise<VeniceModel[]> {
   });
   if (!res.ok) throw new Error(`Venice /models failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as {
-    data: { id: string; model_spec?: { capabilities?: Record<string, boolean>; pricing?: any } }[];
+    data: {
+      id: string;
+      model_spec?: { name?: string; privacy?: string; capabilities?: Record<string, boolean>; pricing?: any };
+    }[];
   };
   const models = body.data
     .map((m) => ({
       id: m.id,
+      name: m.model_spec?.name ?? m.id,
+      privacy: m.model_spec?.privacy ?? null,
       vision: !!m.model_spec?.capabilities?.supportsVision,
       schema: !!m.model_spec?.capabilities?.supportsResponseSchema,
+      e2ee: !!m.model_spec?.capabilities?.supportsE2EE,
       priceIn: m.model_spec?.pricing?.input?.usd ?? null,
       priceOut: m.model_spec?.pricing?.output?.usd ?? null,
     }))
@@ -28,12 +34,27 @@ export async function listVisionModels(): Promise<VeniceModel[]> {
   return models;
 }
 
-async function supportsSchema(model: string) {
+/**
+ * Look up the model before sending it an image. With `requirePrivate`, fails closed: if the model
+ * list can't be fetched or the model isn't marked private, nothing is sent.
+ */
+export async function checkModel(model: string, requirePrivate: boolean): Promise<VeniceModel | null> {
+  let info: VeniceModel | null = null;
   try {
-    return (await listVisionModels()).find((m) => m.id === model)?.schema ?? false;
-  } catch {
-    return false;
+    info = (await listVisionModels()).find((m) => m.id === model) ?? null;
+  } catch (e) {
+    if (requirePrivate) throw new Error(`Can't verify that "${model}" is private: ${(e as Error).message}`);
+    return null;
   }
+  if (requirePrivate && info?.privacy !== "private") {
+    throw new Error(
+      info
+        ? `"${model}" is ${info.privacy ?? "not marked private"} on Venice. Pick a private model or turn off "Private models only".`
+        : `"${model}" isn't a Venice vision model. Pick another model in Settings.`,
+    );
+  }
+  if (info?.e2ee) throw new Error(`"${model}" requires end-to-end encryption, which this app doesn't support yet.`);
+  return info;
 }
 
 /** Downscaled JPEG data URL: enough detail for the model, far fewer tokens than the original. */
@@ -53,11 +74,14 @@ interface ChatOptions {
   imagePath: string;
   schema?: { name: string; schema: object };
   maxTokens?: number;
+  /** Refuse to send the image unless Venice marks the model as private. */
+  requirePrivate: boolean;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function chat(opts: ChatOptions): Promise<string> {
+  const info = await checkModel(opts.model, opts.requirePrivate);
   const body: Record<string, unknown> = {
     model: opts.model,
     temperature: 0.2,
@@ -78,7 +102,7 @@ async function chat(opts: ChatOptions): Promise<string> {
       strip_thinking_response: true,
     },
   };
-  if (opts.schema && (await supportsSchema(opts.model))) {
+  if (opts.schema && info?.schema) {
     body.response_format = { type: "json_schema", json_schema: { ...opts.schema, strict: true } };
   }
 

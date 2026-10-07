@@ -1,9 +1,9 @@
-import { mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync } from "node:fs"
+import { join, resolve } from "node:path"
 
-export const ROOT = resolve(import.meta.dir, "..");
+export const ROOT = resolve(import.meta.dir, "..")
 /** Overridable so tests run against a throwaway folder. */
-export const DATA_DIR = process.env.LORA_DATA_DIR ?? join(ROOT, "data");
+export const DATA_DIR = process.env.LORA_DATA_DIR ?? join(ROOT, "data")
 
 export const paths = {
   input: join(DATA_DIR, "input"),
@@ -14,19 +14,29 @@ export const paths = {
   db: join(DATA_DIR, ".cache", "app.sqlite"),
   workerPython: join(ROOT, "worker", ".venv", "bin", "python"),
   workerScript: join(ROOT, "worker", "main.py"),
-};
-
-for (const dir of [paths.input, paths.output, paths.thumbs, paths.models]) {
-  mkdirSync(dir, { recursive: true });
 }
 
-export const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".bmp"]);
+for (const dir of [paths.input, paths.output, paths.thumbs, paths.models]) {
+  mkdirSync(dir, { recursive: true })
+}
 
-export const PORT = Number(process.env.PORT ?? 3000);
-export const VENICE_BASE_URL = process.env.VENICE_BASE_URL ?? "https://api.venice.ai/api/v1";
+export const IMAGE_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".bmp",
+])
+
+export const PORT = Number(process.env.PORT ?? 3000)
+export const VENICE_BASE_URL =
+  process.env.VENICE_BASE_URL ?? "https://api.venice.ai/api/v1"
 
 export function veniceKey(): string {
-  const key = process.env.VENICE_API_KEY;
-  if (!key) throw new Error("VENICE_API_KEY is not set. Copy .env.example to .env and add your key.");
-  return key;
+  const key = process.env.VENICE_API_KEY
+  if (!key)
+    throw new Error(
+      "VENICE_API_KEY is not set. Copy .env.example to .env and add your key.",
+    )
+  return key
 }

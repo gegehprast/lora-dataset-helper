@@ -1,44 +1,44 @@
 // Types shared by the server and the web UI.
 
-export type Framing = "closeup" | "half" | "full";
-export type CaptionStyle = "natural" | "tags";
-export type ImageStatus = "pending" | "selected" | "reserve" | "rejected";
-export type Override = "include" | "exclude" | null;
+export type Framing = "closeup" | "half" | "full"
+export type CaptionStyle = "natural" | "tags"
+export type ImageStatus = "pending" | "selected" | "reserve" | "rejected"
+export type Override = "include" | "exclude" | null
 
 export interface Settings {
   /** Token that names the character in captions, e.g. "ohwx woman" or "jane_doe". */
-  triggerWord: string;
+  triggerWord: string
   /** Generic class noun used next to the trigger, e.g. "woman". */
-  subjectClass: string;
-  targetCount: number;
+  subjectClass: string
+  targetCount: number
   /** Images whose short side is below this are rejected. */
-  minShortSide: number;
+  minShortSide: number
   /** Short side at which an image gets the full resolution score. */
-  preferredShortSide: number;
+  preferredShortSide: number
   /** Laplacian variance of the main face crop; lower is rejected as blurry. */
-  minFaceSharpness: number;
+  minFaceSharpness: number
   /** Cosine similarity to the identity centroid; lower is rejected as a different person. */
-  identityThreshold: number;
+  identityThreshold: number
   /** Faces smaller than this fraction of image height don't count as a second person. */
-  otherPersonMinFace: number;
-  dedupPhashDistance: number;
-  dedupClipSimilarity: number;
-  framingMix: Record<Framing, number>;
+  otherPersonMinFace: number
+  dedupPhashDistance: number
+  dedupClipSimilarity: number
+  framingMix: Record<Framing, number>
   /** 0 = pure quality ranking, 1 = maximum variety. */
-  diversity: number;
+  diversity: number
   /** Image ids whose main face defines the character's identity. Empty = automatic. */
-  referenceImageIds: number[];
-  tagModel: string;
-  captionModel: string;
+  referenceImageIds: number[]
+  tagModel: string
+  captionModel: string
   /** Never send this dataset's images to Venice (review and captioning are blocked). Enforced server-side. */
-  localOnly: boolean;
+  localOnly: boolean
   /** Only send images to models Venice marks as private. Enforced server-side. */
-  privateModelsOnly: boolean;
-  captionStyle: CaptionStyle;
+  privateModelsOnly: boolean
+  captionStyle: CaptionStyle
   /** Hair can change between photos; describe it so it doesn't get baked into the trigger. */
-  captionDescribeHair: boolean;
-  captionInstructions: string;
-  concurrency: number;
+  captionDescribeHair: boolean
+  captionInstructions: string
+  concurrency: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -63,7 +63,7 @@ export const DEFAULT_SETTINGS: Settings = {
   captionDescribeHair: true,
   captionInstructions: "",
   concurrency: 4,
-};
+}
 
 export const ISSUES = [
   "blurry",
@@ -79,8 +79,8 @@ export const ISSUES = [
   "heavy_filter_or_edit",
   "bad_anatomy",
   "unusual_crop",
-] as const;
-export type Issue = (typeof ISSUES)[number];
+] as const
+export type Issue = (typeof ISSUES)[number]
 
 /** Issues the vision model can report that reject an image outright; the rest only lower its score. */
 export const HARD_ISSUES: Issue[] = [
@@ -90,108 +90,115 @@ export const HARD_ISSUES: Issue[] = [
   "watermark_or_text",
   "heavy_filter_or_edit",
   "bad_anatomy",
-];
+]
 
 export interface VisionTags {
-  framing: Framing;
-  view: "front" | "three_quarter" | "profile" | "back";
-  camera: "eye_level" | "high" | "low";
-  pose: string;
-  expression: string;
-  outfit: string;
-  background: string;
-  lighting: string;
-  issues: Issue[];
-  quality: number;
-  note: string;
+  framing: Framing
+  view: "front" | "three_quarter" | "profile" | "back"
+  camera: "eye_level" | "high" | "low"
+  pose: string
+  expression: string
+  outfit: string
+  background: string
+  lighting: string
+  issues: Issue[]
+  quality: number
+  note: string
 }
 
 export interface FaceInfo {
-  bbox: [number, number, number, number]; // normalized x1, y1, x2, y2
-  det: number;
-  sharpness: number;
-  pose: [number, number, number] | null; // pitch, yaw, roll
-  age: number | null;
-  sex: string | null;
+  bbox: [number, number, number, number] // normalized x1, y1, x2, y2
+  det: number
+  sharpness: number
+  pose: [number, number, number] | null // pitch, yaw, roll
+  age: number | null
+  sex: string | null
 }
 
 /** Worker metrics as stored (embeddings are kept separately). */
 export interface Analysis {
-  error?: string;
-  width: number;
-  height: number;
-  sharpness: number;
-  brightness: number;
-  darkClip: number;
-  brightClip: number;
-  phash: string;
-  aesthetic: number;
-  faces: FaceInfo[];
+  error?: string
+  width: number
+  height: number
+  sharpness: number
+  brightness: number
+  darkClip: number
+  brightClip: number
+  phash: string
+  aesthetic: number
+  faces: FaceInfo[]
 }
 
 export interface ImageMetrics {
-  aesthetic: number | null;
-  sharpness: number | null;
-  faceSharpness: number | null;
-  faceHeight: number | null;
-  yaw: number | null;
-  identity: number | null;
-  faceCount: number;
-  brightness: number | null;
+  aesthetic: number | null
+  sharpness: number | null
+  faceSharpness: number | null
+  faceHeight: number | null
+  yaw: number | null
+  identity: number | null
+  faceCount: number
+  brightness: number | null
 }
 
 export interface ImageRecord {
-  id: number;
-  relPath: string;
-  hash: string;
-  width: number | null;
-  height: number | null;
-  status: ImageStatus;
-  score: number | null;
-  reasons: string[];
-  framing: Framing | null;
-  dupOf: number | null;
-  override: Override;
-  caption: string | null;
-  tags: VisionTags | null;
-  metrics: ImageMetrics;
+  id: number
+  relPath: string
+  hash: string
+  width: number | null
+  height: number | null
+  status: ImageStatus
+  score: number | null
+  reasons: string[]
+  framing: Framing | null
+  dupOf: number | null
+  override: Override
+  caption: string | null
+  tags: VisionTags | null
+  metrics: ImageMetrics
 }
 
 export interface DatasetSummary {
-  name: string;
-  imageCount: number;
-  analyzed: number;
-  tagged: number;
-  selected: number;
-  captioned: number;
+  name: string
+  imageCount: number
+  analyzed: number
+  tagged: number
+  selected: number
+  captioned: number
 }
 
-export type JobKind = "scan" | "analyze" | "tag" | "select" | "caption" | "export" | "auto";
+export type JobKind =
+  | "scan"
+  | "analyze"
+  | "tag"
+  | "select"
+  | "caption"
+  | "export"
+  | "auto"
 
 export interface JobState {
-  dataset: string;
-  kind: JobKind;
-  stage: string;
-  done: number;
-  total: number;
-  running: boolean;
-  error: string | null;
-  message: string | null;
-  startedAt: number;
-  finishedAt: number | null;
+  dataset: string
+  kind: JobKind
+  stage: string
+  done: number
+  total: number
+  running: boolean
+  error: string | null
+  message: string | null
+  startedAt: number
+  finishedAt: number | null
 }
 
 export interface VeniceModel {
-  id: string;
-  name: string;
+  id: string
+  name: string
   /** Venice's label: "private" (no data retained) or "anonymized" (third-party provider). */
-  privacy: string | null;
-  vision: boolean;
+  privacy: string | null
+  vision: boolean
   /** Needs client-side end-to-end encryption, which the app doesn't implement. */
-  e2ee: boolean;
-  schema: boolean;
-  priceIn: number | null;
-  priceOut: number | null;
+  e2ee: boolean
+  schema: boolean
+  priceIn: number | null
+  priceOut: number | null
 }
 
 /** Human-readable labels for rejection reasons. */
@@ -212,4 +219,4 @@ export const REASON_LABELS: Record<string, string> = {
   watermark_or_text: "Watermark / text",
   heavy_filter_or_edit: "Heavy filter / edit",
   bad_anatomy: "Bad anatomy",
-};
+}

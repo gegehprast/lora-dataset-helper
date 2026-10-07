@@ -78,7 +78,20 @@ cp .env.example .env     # VENICE_API_KEY=...
 bun run dev              # bun --hot src/server.ts, with HMR for the UI
 bun run typecheck        # tsc --noEmit
 bun test                 # see Tests
+bun run lint             # Biome: formatting + lint, read-only
+bun run format           # Biome: apply formatting and safe fixes
+bun run check            # typecheck + lint + tests; run before committing
 ```
+
+### Code style
+
+[Biome](https://biomejs.dev) formats and lints TypeScript, CSS and JSON, configured in `biome.json`:
+- 2-space indent, 80 columns, double quotes, **no semicolons**;
+- the recommended lint rules, plus explicit `public`/`private` on class members.
+
+`test/**` turns off `noNonNullAssertion` and `noExplicitAny`, because assertions and loosely typed mocks are normal in tests. App code doesn't use `!`: use a type guard or a check instead.
+
+In VS Code, install the recommended Biome extension (`.vscode/extensions.json`). It formats and organizes imports on save. Python in `worker/` isn't covered by Biome.
 
 | Env var | Default | Purpose |
 |---|---|---|

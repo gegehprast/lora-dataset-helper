@@ -1,76 +1,88 @@
-import { useEffect, useState } from "react";
-import { REASON_LABELS, type ImageRecord, type Override } from "../../src/types";
-import { api, imageUrl, thumbUrl } from "../api";
+import { useEffect, useState } from "react"
+import { type ImageRecord, type Override, REASON_LABELS } from "../../src/types"
+import { api, imageUrl, thumbUrl } from "../api"
 
 interface Props {
-  image: ImageRecord;
-  all: ImageRecord[];
-  isReference: boolean;
-  localOnly: boolean;
-  onClose: () => void;
-  onPrev?: () => void;
-  onNext?: () => void;
-  onOverride: (id: number, o: Override) => void;
-  onToggleReference: (id: number) => void;
-  onCaptionSaved: (id: number, caption: string) => void;
-  onCaptionRegenerated: () => void;
+  image: ImageRecord
+  all: ImageRecord[]
+  isReference: boolean
+  localOnly: boolean
+  onClose: () => void
+  onPrev?: () => void
+  onNext?: () => void
+  onOverride: (id: number, o: Override) => void
+  onToggleReference: (id: number) => void
+  onCaptionSaved: (id: number, caption: string) => void
+  onCaptionRegenerated: () => void
 }
 
-const fmt = (v: number | null | undefined, digits = 0) => (v == null ? "—" : v.toFixed(digits));
+const fmt = (v: number | null | undefined, digits = 0) =>
+  v == null ? "—" : v.toFixed(digits)
 
 export function ImageDetail(p: Props) {
-  const im = p.image;
-  const [caption, setCaption] = useState(im.caption ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const im = p.image
+  const [caption, setCaption] = useState(im.caption ?? "")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
+  // The parent remounts this component per image (key), so only caption updates need syncing.
   useEffect(() => {
-    setCaption(im.caption ?? "");
-    setError(null);
-  }, [im.id, im.caption]);
+    setCaption(im.caption ?? "")
+  }, [im.caption])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === "Escape") p.onClose();
-      if (e.key === "ArrowLeft") p.onPrev?.();
-      if (e.key === "ArrowRight") p.onNext?.();
-    };
-    addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
-  }, [p.onClose, p.onPrev, p.onNext]);
+      if (e.target instanceof HTMLTextAreaElement) return
+      if (e.key === "Escape") p.onClose()
+      if (e.key === "ArrowLeft") p.onPrev?.()
+      if (e.key === "ArrowRight") p.onNext?.()
+    }
+    addEventListener("keydown", onKey)
+    return () => removeEventListener("keydown", onKey)
+  }, [p.onClose, p.onPrev, p.onNext])
 
   const regenerate = async () => {
-    setBusy(true);
-    setError(null);
+    setBusy(true)
+    setError(null)
     try {
-      const r = await api.regenerateCaption(im.id);
-      setCaption(r.caption);
-      p.onCaptionRegenerated();
+      const r = await api.regenerateCaption(im.id)
+      setCaption(r.caption)
+      p.onCaptionRegenerated()
     } catch (e) {
-      setError((e as Error).message);
+      setError((e as Error).message)
     } finally {
-      setBusy(false);
+      setBusy(false)
     }
-  };
+  }
 
-  const dupOf = im.dupOf != null ? p.all.find((x) => x.id === im.dupOf) : null;
-  const m = im.metrics;
-  const t = im.tags;
-  const dirty = caption !== (im.caption ?? "");
+  const dupOf = im.dupOf != null ? p.all.find((x) => x.id === im.dupOf) : null
+  const m = im.metrics
+  const t = im.tags
+  const dirty = caption !== (im.caption ?? "")
 
   return (
-    <div className="modal" onClick={p.onClose}>
-      <div className="modal-body" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={im.relPath}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) p.onClose()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") p.onClose()
+      }}
+    >
+      <div className="modal-body">
         <div className="modal-image">
           <img src={imageUrl(im.id)} alt={im.relPath} />
           {p.onPrev && (
-            <button className="nav prev" onClick={p.onPrev}>
+            <button type="button" className="nav prev" onClick={p.onPrev}>
               ‹
             </button>
           )}
           {p.onNext && (
-            <button className="nav next" onClick={p.onNext}>
+            <button type="button" className="nav next" onClick={p.onNext}>
               ›
             </button>
           )}
@@ -80,23 +92,49 @@ export function ImageDetail(p: Props) {
             <div>
               <div className="filename">{im.relPath}</div>
               <div className="muted">
-                {im.width}×{im.height} · <span className={`status-text status-${im.status}`}>{im.status}</span>
+                {im.width}×{im.height} ·{" "}
+                <span className={`status-text status-${im.status}`}>
+                  {im.status}
+                </span>
                 {im.score != null && ` · score ${Math.round(im.score * 100)}`}
               </div>
             </div>
-            <button className="ghost" onClick={p.onClose}>
+            <button type="button" className="ghost" onClick={p.onClose}>
               Close
             </button>
           </div>
 
           <div className="row">
-            <button className={im.override === "include" ? "primary" : ""} onClick={() => p.onOverride(im.id, im.override === "include" ? null : "include")}>
+            <button
+              type="button"
+              className={im.override === "include" ? "primary" : ""}
+              onClick={() =>
+                p.onOverride(
+                  im.id,
+                  im.override === "include" ? null : "include",
+                )
+              }
+            >
               {im.override === "include" ? "✓ Pinned" : "Always include"}
             </button>
-            <button className={im.override === "exclude" ? "danger" : ""} onClick={() => p.onOverride(im.id, im.override === "exclude" ? null : "exclude")}>
+            <button
+              type="button"
+              className={im.override === "exclude" ? "danger" : ""}
+              onClick={() =>
+                p.onOverride(
+                  im.id,
+                  im.override === "exclude" ? null : "exclude",
+                )
+              }
+            >
               {im.override === "exclude" ? "✕ Excluded" : "Always exclude"}
             </button>
-            <button className={p.isReference ? "primary" : "ghost"} onClick={() => p.onToggleReference(im.id)} title="Use this face to define who the character is">
+            <button
+              type="button"
+              className={p.isReference ? "primary" : "ghost"}
+              onClick={() => p.onToggleReference(im.id)}
+              title="Use this face to define who the character is"
+            >
               {p.isReference ? "★ Identity reference" : "☆ Use as reference"}
             </button>
           </div>
@@ -117,12 +155,31 @@ export function ImageDetail(p: Props) {
           )}
 
           <h3>Caption</h3>
-          <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={6} placeholder={im.status === "selected" ? "No caption yet" : "Only selected images are captioned and exported"} />
+          <textarea
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            rows={6}
+            placeholder={
+              im.status === "selected"
+                ? "No caption yet"
+                : "Only selected images are captioned and exported"
+            }
+          />
           <div className="row">
-            <button disabled={!dirty} onClick={() => p.onCaptionSaved(im.id, caption)}>
+            <button
+              type="button"
+              disabled={!dirty}
+              onClick={() => p.onCaptionSaved(im.id, caption)}
+            >
               Save
             </button>
-            <button className="ghost" disabled={busy || p.localOnly} title={p.localOnly ? "Dataset is Local only" : undefined} onClick={regenerate}>
+            <button
+              type="button"
+              className="ghost"
+              disabled={busy || p.localOnly}
+              title={p.localOnly ? "Dataset is Local only" : undefined}
+              onClick={regenerate}
+            >
               {busy ? "Generating…" : im.caption ? "Regenerate" : "Generate"}
             </button>
           </div>
@@ -151,7 +208,11 @@ export function ImageDetail(p: Props) {
                 <dt>Lighting</dt>
                 <dd>{t.lighting}</dd>
                 <dt>Issues</dt>
-                <dd>{t.issues.length ? t.issues.join(", ").replaceAll("_", " ") : "none"}</dd>
+                <dd>
+                  {t.issues.length
+                    ? t.issues.join(", ").replaceAll("_", " ")
+                    : "none"}
+                </dd>
                 {t.note && (
                   <>
                     <dt>Note</dt>
@@ -165,7 +226,10 @@ export function ImageDetail(p: Props) {
           <h3>Local metrics</h3>
           <dl className="kv">
             <dt>Aesthetic</dt>
-            <dd>{fmt(m.aesthetic, 2)} <span className="muted">(LAION, ~1–10)</span></dd>
+            <dd>
+              {fmt(m.aesthetic, 2)}{" "}
+              <span className="muted">(LAION, ~1–10)</span>
+            </dd>
             <dt>Identity match</dt>
             <dd>{fmt(m.identity, 2)}</dd>
             <dt>Face sharpness</dt>
@@ -173,7 +237,11 @@ export function ImageDetail(p: Props) {
             <dt>Image sharpness</dt>
             <dd>{fmt(m.sharpness)}</dd>
             <dt>Face height</dt>
-            <dd>{m.faceHeight == null ? "—" : `${Math.round(m.faceHeight * 100)}% of image`}</dd>
+            <dd>
+              {m.faceHeight == null
+                ? "—"
+                : `${Math.round(m.faceHeight * 100)}% of image`}
+            </dd>
             <dt>Head yaw</dt>
             <dd>{m.yaw == null ? "—" : `${Math.round(m.yaw)}°`}</dd>
             <dt>Faces found</dt>
@@ -184,5 +252,5 @@ export function ImageDetail(p: Props) {
         </aside>
       </div>
     </div>
-  );
+  )
 }

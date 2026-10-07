@@ -1,20 +1,35 @@
-import { join } from "node:path";
-import { db, getSettings } from "../db";
-import { pool, type JobContext } from "../jobs";
-import { ISSUES, type VisionTags } from "../types";
-import { assertOnlineAllowed, chatJson, checkModel } from "../venice";
-import { datasetDir } from "./scan";
-import { runSelection } from "./select";
+import { join } from "node:path"
+import { db, getSettings } from "../db"
+import { type JobContext, pool } from "../jobs"
+import { ISSUES, type VisionTags } from "../types"
+import { assertOnlineAllowed, chatJson, checkModel } from "../venice"
+import { datasetDir } from "./scan"
+import { runSelection } from "./select"
 
 export const TAG_SCHEMA = {
   name: "image_assessment",
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["framing", "view", "camera", "pose", "expression", "outfit", "background", "lighting", "issues", "quality", "note"],
+    required: [
+      "framing",
+      "view",
+      "camera",
+      "pose",
+      "expression",
+      "outfit",
+      "background",
+      "lighting",
+      "issues",
+      "quality",
+      "note",
+    ],
     properties: {
       framing: { type: "string", enum: ["closeup", "half", "full"] },
-      view: { type: "string", enum: ["front", "three_quarter", "profile", "back"] },
+      view: {
+        type: "string",
+        enum: ["front", "three_quarter", "profile", "back"],
+      },
       camera: { type: "string", enum: ["eye_level", "high", "low"] },
       pose: { type: "string" },
       expression: { type: "string" },
@@ -26,9 +41,9 @@ export const TAG_SCHEMA = {
       note: { type: "string" },
     },
   },
-};
+}
 
-export const SYSTEM = `You are a meticulous photo editor curating a training dataset for a character LoRA, a model that learns one specific person's likeness. Assess each image objectively and strictly. Reply with a single JSON object and nothing else.`;
+export const SYSTEM = `You are a meticulous photo editor curating a training dataset for a character LoRA, a model that learns one specific person's likeness. Assess each image objectively and strictly. Reply with a single JSON object and nothing else.`
 
 export const PROMPT = `Assess this photo of the main subject. Fields:
 - framing: "closeup" (head and shoulders), "half" (waist or mid-thigh up), "full" (most of the body, knees or lower visible).
@@ -42,16 +57,16 @@ export const PROMPT = `Assess this photo of the main subject. Fields:
   heavy_filter_or_edit (beauty filter, face-tune, heavy color grading, stickers), bad_anatomy (distorted body/face, e.g. AI artifacts or lens distortion), unusual_crop.
   Use an empty list if there are none.
 - quality: 1-10, how useful this image is for learning the subject's likeness (sharp detailed face, natural look, good light = high).
-- note: one short sentence with anything else notable.`;
+- note: one short sentence with anything else notable.`
 
 /** Ask the vision model about every image that passed the local filters and has no tags from the current model. */
 export async function tagDataset(dataset: string, ctx: JobContext) {
-  const s = getSettings(dataset);
-  assertOnlineAllowed(dataset, s.localOnly);
-  const dir = datasetDir(dataset);
+  const s = getSettings(dataset)
+  assertOnlineAllowed(dataset, s.localOnly)
+  const dir = datasetDir(dataset)
 
-  ctx.stage("Pre-selecting with local metrics", 0);
-  runSelection(dataset);
+  ctx.stage("Pre-selecting with local metrics", 0)
+  runSelection(dataset)
 
   const todo = db
     .query<{ id: number; rel_path: string }, [string, string]>(
@@ -60,14 +75,16 @@ export async function tagDataset(dataset: string, ctx: JobContext) {
          AND (tags IS NULL OR tags_model IS NOT ?)
        ORDER BY score DESC`,
     )
-    .all(dataset, s.tagModel);
-  if (!todo.length) return "Nothing new to tag";
+    .all(dataset, s.tagModel)
+  if (!todo.length) return "Nothing new to tag"
 
-  await checkModel(s.tagModel, s.privateModelsOnly);
-  ctx.stage(`Tagging with ${s.tagModel}`, todo.length);
-  const save = db.query("UPDATE images SET tags = ?, tags_model = ? WHERE id = ?");
-  const errors: string[] = [];
-  let ok = 0;
+  await checkModel(s.tagModel, s.privateModelsOnly)
+  ctx.stage(`Tagging with ${s.tagModel}`, todo.length)
+  const save = db.query(
+    "UPDATE images SET tags = ?, tags_model = ? WHERE id = ?",
+  )
+  const errors: string[] = []
+  let ok = 0
   await pool(todo, s.concurrency, ctx, async (row) => {
     try {
       const tags = await chatJson<VisionTags>({
@@ -77,20 +94,29 @@ export async function tagDataset(dataset: string, ctx: JobContext) {
         imagePath: join(dir, row.rel_path),
         schema: TAG_SCHEMA,
         requirePrivate: s.privateModelsOnly,
-      });
-      tags.issues = (tags.issues ?? []).filter((i) => (ISSUES as readonly string[]).includes(i));
-      tags.quality = Math.min(10, Math.max(1, Math.round(Number(tags.quality) || 5)));
-      save.run(JSON.stringify(tags), s.tagModel, row.id);
-      ok++;
+      })
+      tags.issues = (tags.issues ?? []).filter((i) =>
+        (ISSUES as readonly string[]).includes(i),
+      )
+      tags.quality = Math.min(
+        10,
+        Math.max(1, Math.round(Number(tags.quality) || 5)),
+      )
+      save.run(JSON.stringify(tags), s.tagModel, row.id)
+      ok++
     } catch (e) {
-      errors.push(`${row.rel_path}: ${(e as Error).message}`);
+      errors.push(`${row.rel_path}: ${(e as Error).message}`)
       // Every request failing (bad key, unknown model, ...) means the rest will fail too.
-      if (ok === 0 && errors.length >= 3) throw new Error(`Venice requests are failing: ${(e as Error).message}`);
+      if (ok === 0 && errors.length >= 3)
+        throw new Error(`Venice requests are failing: ${(e as Error).message}`)
     }
-  });
+  })
 
-  ctx.stage("Selecting", 0);
-  const sum = runSelection(dataset);
-  if (errors.length) console.warn(`[tag ${dataset}] ${errors.length} failures:\n  ${errors.join("\n  ")}`);
-  return `Tagged ${todo.length - errors.length}/${todo.length}${errors.length ? ` (${errors.length} failed: ${errors[0]})` : ""}. Selected ${sum.selected}.`;
+  ctx.stage("Selecting", 0)
+  const sum = runSelection(dataset)
+  if (errors.length)
+    console.warn(
+      `[tag ${dataset}] ${errors.length} failures:\n  ${errors.join("\n  ")}`,
+    )
+  return `Tagged ${todo.length - errors.length}/${todo.length}${errors.length ? ` (${errors.length} failed: ${errors[0]})` : ""}. Selected ${sum.selected}.`
 }

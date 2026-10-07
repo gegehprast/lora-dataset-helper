@@ -50,11 +50,19 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font:
+    14px / 1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
 }
 
 code {
-  font: 12.5px ui-monospace, "SF Mono", Menlo, monospace;
+  font:
+    12.5px ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
   background: var(--surface-2);
   padding: 1px 5px;
   border-radius: 4px;
@@ -456,13 +464,9 @@ textarea:focus {
   border: 2px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  cursor: pointer;
 }
 .card.status-selected {
   border-color: var(--ok);
-}
-.card.status-rejected .thumb img {
-  opacity: 0.55;
 }
 .card.status-reserve {
   border-style: dashed;
@@ -478,7 +482,22 @@ textarea:focus {
   object-fit: contain;
   display: block;
 }
+.thumb-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+}
+.thumb-open:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
 .card-badges {
+  pointer-events: none;
   position: absolute;
   left: 6px;
   top: 6px;
@@ -705,6 +724,9 @@ legend {
   height: 32px;
   object-fit: cover;
   border-radius: 4px;
+}
+.card.status-rejected .thumb img {
+  opacity: 0.55;
 }
 .kv {
   display: grid;

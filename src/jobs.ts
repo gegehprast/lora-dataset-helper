@@ -1,37 +1,49 @@
-import type { JobKind, JobState } from "./types";
+import type { JobKind, JobState } from "./types"
 
 export class Cancelled extends Error {
-  constructor() {
-    super("Cancelled");
+  public constructor() {
+    super("Cancelled")
   }
 }
 
 export interface JobContext {
   /** Set the current stage label and reset the counter. */
-  stage(label: string, total: number): void;
-  tick(n?: number): void;
-  message(msg: string): void;
+  stage(label: string, total: number): void
+  tick(n?: number): void
+  message(msg: string): void
   /** Throws Cancelled if the user stopped the job. Call between units of work. */
-  check(): void;
+  check(): void
 }
 
 // Kept on globalThis so running jobs survive `bun --hot` reloads.
-const g = globalThis as unknown as { __loraJobs?: Map<string, JobState>; __loraCancel?: Map<string, boolean> };
-const jobs = (g.__loraJobs ??= new Map());
-const cancelFlags = (g.__loraCancel ??= new Map());
+const g = globalThis as unknown as {
+  __loraJobs?: Map<string, JobState>
+  __loraCancel?: Map<string, boolean>
+}
+if (!g.__loraJobs) g.__loraJobs = new Map()
+if (!g.__loraCancel) g.__loraCancel = new Map()
+const jobs = g.__loraJobs
+const cancelFlags = g.__loraCancel
 
 export function getJob(dataset: string): JobState | null {
-  return jobs.get(dataset) ?? null;
+  return jobs.get(dataset) ?? null
 }
 
 export function cancelJob(dataset: string) {
-  if (jobs.get(dataset)?.running) cancelFlags.set(dataset, true);
+  if (jobs.get(dataset)?.running) cancelFlags.set(dataset, true)
 }
 
 /** Runs one job per dataset at a time. Returns immediately; progress is read via getJob(). */
-export function startJob(dataset: string, kind: JobKind, fn: (ctx: JobContext) => Promise<string | void>): JobState {
-  const existing = jobs.get(dataset);
-  if (existing?.running) throw new Error(`A "${existing.kind}" job is already running for this dataset`);
+export function startJob(
+  dataset: string,
+  kind: JobKind,
+  fn: (ctx: JobContext) => Promise<unknown>,
+): JobState {
+  const existing = jobs.get(dataset)
+  if (existing?.running)
+    throw new Error(
+      `A "${existing.kind}" job is already running for this dataset`,
+    )
 
   const state: JobState = {
     dataset,
@@ -44,53 +56,67 @@ export function startJob(dataset: string, kind: JobKind, fn: (ctx: JobContext) =
     message: null,
     startedAt: Date.now(),
     finishedAt: null,
-  };
-  jobs.set(dataset, state);
-  cancelFlags.set(dataset, false);
+  }
+  jobs.set(dataset, state)
+  cancelFlags.set(dataset, false)
 
   const ctx: JobContext = {
     stage(label, total) {
-      state.stage = label;
-      state.total = total;
-      state.done = 0;
+      state.stage = label
+      state.total = total
+      state.done = 0
     },
     tick(n = 1) {
-      state.done += n;
+      state.done += n
     },
     message(msg) {
-      state.message = msg;
+      state.message = msg
     },
     check() {
-      if (cancelFlags.get(dataset)) throw new Cancelled();
+      if (cancelFlags.get(dataset)) throw new Cancelled()
     },
-  };
+  }
 
   fn(ctx)
     .then((msg) => {
-      if (msg) state.message = msg;
+      if (typeof msg === "string") state.message = msg
     })
     .catch((e: unknown) => {
-      state.error = e instanceof Cancelled ? "Cancelled" : e instanceof Error ? e.message : String(e);
-      if (!(e instanceof Cancelled)) console.error(`[job ${kind}/${dataset}]`, e);
+      state.error =
+        e instanceof Cancelled
+          ? "Cancelled"
+          : e instanceof Error
+            ? e.message
+            : String(e)
+      if (!(e instanceof Cancelled))
+        console.error(`[job ${kind}/${dataset}]`, e)
     })
     .finally(() => {
-      state.running = false;
-      state.finishedAt = Date.now();
-    });
+      state.running = false
+      state.finishedAt = Date.now()
+    })
 
-  return state;
+  return state
 }
 
 /** Run `fn` over items with bounded concurrency, honouring cancellation. */
-export async function pool<T>(items: T[], concurrency: number, ctx: JobContext, fn: (item: T) => Promise<void>) {
-  let next = 0;
-  const runners = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
-    while (next < items.length) {
-      ctx.check();
-      const item = items[next++]!;
-      await fn(item);
-      ctx.tick();
-    }
-  });
-  await Promise.all(runners);
+export async function pool<T>(
+  items: T[],
+  concurrency: number,
+  ctx: JobContext,
+  fn: (item: T) => Promise<void>,
+) {
+  let next = 0
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(concurrency, items.length)) },
+    async () => {
+      while (next < items.length) {
+        ctx.check()
+        const item = items[next++]
+        await fn(item)
+        ctx.tick()
+      }
+    },
+  )
+  await Promise.all(runners)
 }

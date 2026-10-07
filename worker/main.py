@@ -78,9 +78,9 @@ class Analyzer:
     def _load_clip(self):
         import open_clip
 
-        log("loading CLIP ViT-L-14 ...")
+        log("loading CLIP ViT-L-14 (OpenAI) ...")
         model, _, preprocess = open_clip.create_model_and_transforms(
-            "ViT-L-14", pretrained="openai", device=self.device, cache_dir=os.path.join(MODELS_DIR, "open_clip")
+            "ViT-L-14-quickgelu", pretrained="openai", device=self.device, cache_dir=os.path.join(MODELS_DIR, "open_clip")
         )
         model.eval()
         self.clip = model

@@ -16,5 +16,8 @@ VPY=worker/.venv/bin/python
 # insightface ships only as an sdist that needs Cython + numpy at build time.
 "$VPY" -m pip install cython
 "$VPY" -m pip install --no-build-isolation insightface
-"$VPY" -c "import torch, onnxruntime; print('torch', torch.__version__, 'cuda:', torch.cuda.is_available()); print('onnxruntime providers:', onnxruntime.get_available_providers())"
+# insightface depends on the CPU-only "onnxruntime", which shadows onnxruntime-gpu. Keep only the GPU build.
+"$VPY" -m pip uninstall -y onnxruntime onnxruntime-gpu
+"$VPY" -m pip install onnxruntime-gpu
+"$VPY" -c "import torch, onnxruntime; onnxruntime.preload_dlls(); print('torch', torch.__version__, 'cuda:', torch.cuda.is_available()); print('onnxruntime providers:', onnxruntime.get_available_providers())"
 echo "Worker environment ready."

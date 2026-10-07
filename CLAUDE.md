@@ -6,6 +6,7 @@
 
 - **Never commit it.** It is in `.gitignore`; keep it there.
 - **Never let these images reach the internet.** Do not send them, or anything derived from them (thumbnails, crops, base64), to Venice AI or any other remote API, upload, artifact or web service.
+- **Don't view them with the Read tool or any image viewer that sends content to a model**: that uploads them too. Inspect them only through numeric metrics (worker output, DB, API JSON).
 - Test only the local pipeline with them (scan, Python worker analysis, selection, export). To test Venice calls, use a synthetic image or one the user explicitly provides for that purpose.
 
 

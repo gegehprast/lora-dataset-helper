@@ -346,6 +346,13 @@ export function DatasetView({ name }: { name: string }) {
           onToggleReference={(id) => guarded(api.toggleReference(id))}
           onCaptionSaved={(id, caption) => guarded(api.setCaption(id, caption))}
           onCaptionRegenerated={reload}
+          minShortSide={s.minShortSide}
+          onCrop={async (id, crop) => {
+            const d = await api.setCrop(id, crop)
+            apply(d)
+            if (d.warning) setError(d.warning)
+          }}
+          onReview={async (id) => apply(await api.reviewImage(id))}
         />
       )}
     </div>

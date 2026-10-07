@@ -47,7 +47,7 @@ const Card = memo(function Card({
           onClick={() => onOpen(im.id)}
           aria-label={`Open ${im.relPath}`}
         >
-          <img src={thumbUrl(im.hash)} loading="lazy" alt={im.relPath} />
+          <img src={thumbUrl(im.thumb)} loading="lazy" alt={im.relPath} />
         </button>
         <div className="card-badges">
           {im.score != null && (
@@ -62,8 +62,18 @@ const Card = memo(function Card({
             </span>
           )}
           {isRef && <span className="badge ref">ref</span>}
+          {im.crop && <span className="badge">crop</span>}
           {im.status === "selected" && im.caption && (
-            <span className="badge caption">txt</span>
+            <span
+              className={`badge ${im.captionStale ? "caption-stale" : "caption"}`}
+              title={
+                im.captionStale
+                  ? "Caption written before the crop"
+                  : "Has a caption"
+              }
+            >
+              txt{im.captionStale && " !"}
+            </span>
           )}
         </div>
         <div className="card-actions">

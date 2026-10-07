@@ -1,8 +1,8 @@
 import { readdirSync, statSync } from "node:fs"
 import { extname, join } from "node:path"
-import sharp from "sharp"
 import { IMAGE_EXTENSIONS, paths } from "../config"
-import { db } from "../db"
+import { cropFromJson, loadImage } from "../crop"
+import { db, thumbId } from "../db"
 import type { JobContext } from "../jobs"
 import type { DatasetSummary } from "../types"
 
@@ -18,8 +18,9 @@ export function datasetDir(name: string): string {
   return join(paths.input, name)
 }
 
-export function thumbPath(hash: string) {
-  return join(paths.thumbs, `${hash}.webp`)
+/** Path of a thumbnail by id (see thumbId in db.ts). */
+export function thumbPath(id: string) {
+  return join(paths.thumbs, `${id}.webp`)
 }
 
 function listImageFiles(dir: string): string[] {
@@ -77,11 +78,14 @@ async function hashFile(path: string): Promise<string> {
   return hasher.digest("hex")
 }
 
-export async function makeThumbnail(src: string, hash: string) {
-  const dest = thumbPath(hash)
+/** Create the (cropped) thumbnail for a row if it doesn't exist yet. */
+export async function makeThumbnail(
+  src: string,
+  row: { file_hash: string; crop: string | null },
+) {
+  const dest = thumbPath(thumbId(row))
   if (await Bun.file(dest).exists()) return
-  await sharp(src)
-    .rotate()
+  await (await loadImage(src, cropFromJson(row.crop)))
     .resize(512, 512, { fit: "inside", withoutEnlargement: true })
     .webp({ quality: 80 })
     .toFile(dest)
@@ -102,10 +106,11 @@ export async function scanDataset(dataset: string, ctx: JobContext) {
           size: number
           mtime: number
           file_hash: string
+          crop: string | null
         },
         [string]
       >(
-        "SELECT id, rel_path, size, mtime, file_hash FROM images WHERE dataset = ?",
+        "SELECT id, rel_path, size, mtime, file_hash, crop FROM images WHERE dataset = ?",
       )
       .all(dataset)
       .map((r) => [r.rel_path, r]),
@@ -118,7 +123,7 @@ export async function scanDataset(dataset: string, ctx: JobContext) {
     db.query(`UPDATE images SET file_hash = ?, size = ?, mtime = ?, width = NULL, height = NULL,
     analysis = NULL, clip_emb = NULL, face_embs = NULL, tags = NULL, tags_model = NULL, status = 'pending',
     score = NULL, reasons = '[]', framing = NULL, dup_of = NULL, identity = NULL, main_face = NULL, outfit_group = NULL,
-    caption = NULL, caption_model = NULL WHERE id = ?`)
+    caption = NULL, caption_model = NULL, caption_stale = 0, crop = NULL WHERE id = ?`)
 
   let added = 0
   let changed = 0
@@ -131,10 +136,10 @@ export async function scanDataset(dataset: string, ctx: JobContext) {
     existing.delete(rel)
     try {
       if (prev && prev.size === st.size && prev.mtime === st.mtimeMs) {
-        await makeThumbnail(abs, prev.file_hash)
+        await makeThumbnail(abs, prev)
       } else {
         const hash = await hashFile(abs)
-        await makeThumbnail(abs, hash)
+        await makeThumbnail(abs, { file_hash: hash, crop: null })
         if (!prev) {
           insert.run(dataset, rel, hash, st.size, st.mtimeMs)
           added++

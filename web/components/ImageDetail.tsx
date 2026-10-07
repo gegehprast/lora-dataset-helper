@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react"
+import type { Crop } from "../../src/types"
 import { type ImageRecord, type Override, REASON_LABELS } from "../../src/types"
 import { api, imageUrl, thumbUrl } from "../api"
+import { CropEditor, CropPreview } from "./CropEditor"
 
 interface Props {
   image: ImageRecord
   all: ImageRecord[]
   isReference: boolean
   localOnly: boolean
+  minShortSide: number
   onClose: () => void
   onPrev?: () => void
   onNext?: () => void
@@ -14,6 +17,9 @@ interface Props {
   onToggleReference: (id: number) => void
   onCaptionSaved: (id: number, caption: string) => void
   onCaptionRegenerated: () => void
+  /** Save (or with null, remove) the crop. Rejects with a message on failure. */
+  onCrop: (id: number, crop: Crop | null) => Promise<void>
+  onReview: (id: number) => Promise<void>
 }
 
 const fmt = (v: number | null | undefined, digits = 0) =>
@@ -24,6 +30,9 @@ export function ImageDetail(p: Props) {
   const [caption, setCaption] = useState(im.caption ?? "")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cropping, setCropping] = useState(false)
+  const [cropSaving, setCropSaving] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
 
   // The parent remounts this component per image (key), so only caption updates need syncing.
   useEffect(() => {
@@ -32,14 +41,14 @@ export function ImageDetail(p: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLTextAreaElement) return
+      if (cropping || e.target instanceof HTMLTextAreaElement) return
       if (e.key === "Escape") p.onClose()
       if (e.key === "ArrowLeft") p.onPrev?.()
       if (e.key === "ArrowRight") p.onNext?.()
     }
     addEventListener("keydown", onKey)
     return () => removeEventListener("keydown", onKey)
-  }, [p.onClose, p.onPrev, p.onNext])
+  }, [cropping, p.onClose, p.onPrev, p.onNext])
 
   const regenerate = async () => {
     setBusy(true)
@@ -55,6 +64,31 @@ export function ImageDetail(p: Props) {
     }
   }
 
+  const saveCrop = async (crop: Crop | null) => {
+    setCropSaving(true)
+    setError(null)
+    try {
+      await p.onCrop(im.id, crop)
+      setCropping(false)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setCropSaving(false)
+    }
+  }
+
+  const review = async () => {
+    setReviewing(true)
+    setError(null)
+    try {
+      await p.onReview(im.id)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setReviewing(false)
+    }
+  }
+
   const dupOf = im.dupOf != null ? p.all.find((x) => x.id === im.dupOf) : null
   const m = im.metrics
   const t = im.tags
@@ -67,21 +101,34 @@ export function ImageDetail(p: Props) {
       aria-modal="true"
       aria-label={im.relPath}
       onClick={(e) => {
-        if (e.target === e.currentTarget) p.onClose()
+        if (e.target === e.currentTarget && !cropping) p.onClose()
       }}
       onKeyDown={(e) => {
-        if (e.key === "Escape") p.onClose()
+        if (e.key === "Escape" && !cropping) p.onClose()
       }}
     >
       <div className="modal-body">
         <div className="modal-image">
-          <img src={imageUrl(im.id)} alt={im.relPath} />
-          {p.onPrev && (
+          {cropping ? (
+            <CropEditor
+              src={imageUrl(im.id)}
+              initial={im.crop}
+              minShortSide={p.minShortSide}
+              saving={cropSaving}
+              onSave={saveCrop}
+              onCancel={() => setCropping(false)}
+            />
+          ) : im.crop ? (
+            <CropPreview src={imageUrl(im.id)} crop={im.crop} />
+          ) : (
+            <img src={imageUrl(im.id)} alt={im.relPath} />
+          )}
+          {!cropping && p.onPrev && (
             <button type="button" className="nav prev" onClick={p.onPrev}>
               ‹
             </button>
           )}
-          {p.onNext && (
+          {!cropping && p.onNext && (
             <button type="button" className="nav next" onClick={p.onNext}>
               ›
             </button>
@@ -92,7 +139,8 @@ export function ImageDetail(p: Props) {
             <div>
               <div className="filename">{im.relPath}</div>
               <div className="muted">
-                {im.width}×{im.height} ·{" "}
+                {im.width}×{im.height}
+                {im.crop && " (cropped)"} ·{" "}
                 <span className={`status-text status-${im.status}`}>
                   {im.status}
                 </span>
@@ -137,6 +185,14 @@ export function ImageDetail(p: Props) {
             >
               {p.isReference ? "★ Identity reference" : "☆ Use as reference"}
             </button>
+            <button
+              type="button"
+              className={im.crop ? "primary" : "ghost"}
+              disabled={cropping}
+              onClick={() => setCropping(true)}
+            >
+              ✂ {im.crop ? "Edit crop" : "Crop"}
+            </button>
           </div>
 
           {im.reasons.length > 0 && (
@@ -148,13 +204,19 @@ export function ImageDetail(p: Props) {
               ))}
               {dupOf && (
                 <span className="dup">
-                  of <img src={thumbUrl(dupOf.hash)} alt="" /> {dupOf.relPath}
+                  of <img src={thumbUrl(dupOf.thumb)} alt="" /> {dupOf.relPath}
                 </span>
               )}
             </div>
           )}
 
           <h3>Caption</h3>
+          {im.captionStale && (
+            <div className="banner warn small">
+              Written before the image was cropped. Check it, or click
+              Regenerate.
+            </div>
+          )}
           <textarea
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
@@ -185,51 +247,71 @@ export function ImageDetail(p: Props) {
           </div>
           {error && <div className="banner error">{error}</div>}
 
+          <div className="section-head">
+            <h3>AI review</h3>
+            <button
+              type="button"
+              className="ghost small"
+              disabled={reviewing || p.localOnly || im.status === "pending"}
+              title={
+                p.localOnly
+                  ? "Dataset is Local only"
+                  : im.status === "pending"
+                    ? "Analyze the image locally first"
+                    : "Send this image (cropped, if cropped) to the review model"
+              }
+              onClick={review}
+            >
+              {reviewing
+                ? "Reviewing…"
+                : t
+                  ? "Review again"
+                  : "Review this image"}
+            </button>
+          </div>
+          {!t && <p className="muted small-text">Not reviewed yet.</p>}
           {t && (
-            <>
-              <h3>AI review</h3>
-              <dl className="kv">
-                <dt>Quality</dt>
-                <dd>{t.quality}/10</dd>
-                <dt>Framing</dt>
-                <dd>{t.framing}</dd>
-                <dt>View / camera</dt>
-                <dd>
-                  {t.view.replace("_", " ")} · {t.camera.replace("_", " ")}
-                </dd>
-                <dt>Pose</dt>
-                <dd>{t.pose}</dd>
-                <dt>Expression</dt>
-                <dd>{t.expression}</dd>
-                <dt>Outfit</dt>
-                <dd>
-                  {t.outfit}
+            <dl className="kv">
+              <dt>Quality</dt>
+              <dd>{t.quality}/10</dd>
+              <dt>Framing</dt>
+              <dd>{t.framing}</dd>
+              <dt>View / camera</dt>
+              <dd>
+                {t.view.replace("_", " ")} · {t.camera.replace("_", " ")}
+              </dd>
+              <dt>Pose</dt>
+              <dd>{t.pose}</dd>
+              <dt>Expression</dt>
+              <dd>{t.expression}</dd>
+              <dt>Outfit</dt>
+              <dd>
+                {t.outfit}
 
-                  {im.outfitGroup &&
-                    im.outfitGroup !== t.outfit.toLowerCase() && (
-                      <span className="muted"> · group: {im.outfitGroup}</span>
-                    )}
-                </dd>
-                <dt>Setting</dt>
-                <dd>{t.setting?.replaceAll("_", " ") ?? "—"}</dd>
-                <dt>Background</dt>
-                <dd>{t.background}</dd>
-                <dt>Lighting</dt>
-                <dd>{t.lighting}</dd>
-                <dt>Issues</dt>
-                <dd>
-                  {t.issues.length
-                    ? t.issues.join(", ").replaceAll("_", " ")
-                    : "none"}
-                </dd>
-                {t.note && (
-                  <>
-                    <dt>Note</dt>
-                    <dd>{t.note}</dd>
-                  </>
-                )}
-              </dl>
-            </>
+                {im.outfitGroup &&
+                  im.outfitGroup !== t.outfit.toLowerCase() && (
+                    <span className="muted"> · group: {im.outfitGroup}</span>
+                  )}
+              </dd>
+              <dt>Setting</dt>
+              <dd>{t.setting?.replaceAll("_", " ") ?? "—"}</dd>
+              <dt>Background</dt>
+              <dd>{t.background}</dd>
+              <dt>Lighting</dt>
+              <dd>{t.lighting}</dd>
+              <dt>Issues</dt>
+              <dd>
+                {t.issues.length
+                  ? t.issues.join(", ").replaceAll("_", " ")
+                  : "none"}
+              </dd>
+              {t.note && (
+                <>
+                  <dt>Note</dt>
+                  <dd>{t.note}</dd>
+                </>
+              )}
+            </dl>
           )}
 
           <h3>Local metrics</h3>

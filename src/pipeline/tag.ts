@@ -1,5 +1,6 @@
 import { join } from "node:path"
-import { db, getSettings } from "../db"
+import { cropFromJson } from "../crop"
+import { db, getRow, getSettings } from "../db"
 import { type JobContext, pool } from "../jobs"
 import {
   EXPRESSIONS,
@@ -195,13 +196,50 @@ export async function groupOutfits(
   return { requested, note }
 }
 
-type Candidate = { id: number; rel_path: string }
+type Candidate = { id: number; rel_path: string; crop: string | null }
+
+/** Review one image (the cropped region, if cropped) and store the result. */
+async function reviewImage(row: Candidate, dir: string, s: Settings) {
+  const tags = await chatJson<VisionTags>({
+    model: s.tagModel,
+    system: SYSTEM,
+    prompt: PROMPT,
+    imagePath: join(dir, row.rel_path),
+    crop: cropFromJson(row.crop),
+    schema: TAG_SCHEMA,
+    requirePrivate: s.privateModelsOnly,
+  })
+  tags.v = TAGS_VERSION
+  tags.issues = (tags.issues ?? []).filter((i) =>
+    (ISSUES as readonly string[]).includes(i),
+  )
+  tags.quality = Math.min(
+    10,
+    Math.max(1, Math.round(Number(tags.quality) || 5)),
+  )
+  // The outfit group is set by the next grouping run; until then the outfit text is used.
+  db.query(
+    "UPDATE images SET tags = ?, tags_model = ?, outfit_group = NULL WHERE id = ?",
+  ).run(JSON.stringify(tags), s.tagModel, row.id)
+}
+
+/** Review a single image now (detail view button), then re-select. */
+export async function reviewSingleImage(id: number): Promise<void> {
+  const row = getRow(id)
+  if (!row) throw new Error(`Image ${id} not found`)
+  const s = getSettings(row.dataset)
+  assertOnlineAllowed(row.dataset, s.localOnly)
+  if (!row.analysis) throw new Error("Analyze the image locally first")
+  await checkModel(s.tagModel, s.privateModelsOnly)
+  await reviewImage(row, datasetDir(row.dataset), s)
+  runSelection(row.dataset)
+}
 
 /** Rows of the dataset matching `where` that lack an up-to-date review from `model`. */
 function needingReview(dataset: string, model: string, where: string) {
   return db
     .query<Candidate, [string, string, number]>(
-      `SELECT id, rel_path FROM images WHERE dataset = ? AND (${where})
+      `SELECT id, rel_path, crop FROM images WHERE dataset = ? AND (${where})
          AND (tags IS NULL OR tags_model IS NOT ?
               OR COALESCE(json_extract(tags, '$.v'), 0) != ?)
        ORDER BY override = 'include' DESC, score DESC`,
@@ -246,9 +284,6 @@ export async function tagDataset(dataset: string, ctx: JobContext) {
     inPool.has(r.id),
   )
 
-  const save = db.query(
-    "UPDATE images SET tags = ?, tags_model = ? WHERE id = ?",
-  )
   const attempted = new Set<number>()
   const errors: string[] = []
   let ok = 0
@@ -263,23 +298,7 @@ export async function tagDataset(dataset: string, ctx: JobContext) {
     for (const r of rows) attempted.add(r.id)
     await pool(rows, s.concurrency, ctx, async (row) => {
       try {
-        const tags = await chatJson<VisionTags>({
-          model: s.tagModel,
-          system: SYSTEM,
-          prompt: PROMPT,
-          imagePath: join(dir, row.rel_path),
-          schema: TAG_SCHEMA,
-          requirePrivate: s.privateModelsOnly,
-        })
-        tags.v = TAGS_VERSION
-        tags.issues = (tags.issues ?? []).filter((i) =>
-          (ISSUES as readonly string[]).includes(i),
-        )
-        tags.quality = Math.min(
-          10,
-          Math.max(1, Math.round(Number(tags.quality) || 5)),
-        )
-        save.run(JSON.stringify(tags), s.tagModel, row.id)
+        await reviewImage(row, dir, s)
         ok++
       } catch (e) {
         errors.push(`${row.rel_path}: ${(e as Error).message}`)

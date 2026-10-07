@@ -132,7 +132,7 @@ class Analyzer:
     def info(self):
         return {"device": self.device, "faceProviders": self.face_providers}
 
-    def _analyze_one(self, path):
+    def _analyze_one(self, path, crop=None):
         import cv2
         import imagehash
         import numpy as np
@@ -140,6 +140,13 @@ class Analyzer:
 
         with Image.open(path) as im:
             im = ImageOps.exif_transpose(im).convert("RGB")
+        if crop:
+            # Normalized x, y, w, h relative to the EXIF-rotated image (same as the app).
+            W, H = im.size
+            x, y, cw, ch = crop
+            left, top = round(x * W), round(y * H)
+            right, bottom = min(W, left + max(1, round(cw * W))), min(H, top + max(1, round(ch * H)))
+            im = im.crop((left, top, right, bottom))
         w, h = im.size
         rgb = np.asarray(im)
         gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
@@ -177,12 +184,13 @@ class Analyzer:
         result["faces"].sort(key=lambda fc: (fc["bbox"][2] - fc["bbox"][0]) * (fc["bbox"][3] - fc["bbox"][1]), reverse=True)
         return result, im
 
-    def analyze(self, paths):
+    def analyze(self, paths, crops=None):
         torch = self.torch
         results, images = [], []
-        for p in paths:
+        crops = crops or [None] * len(paths)
+        for p, crop in zip(paths, crops):
             try:
-                r, im = self._analyze_one(p)
+                r, im = self._analyze_one(p, crop)
                 results.append(r)
                 images.append(im)
             except Exception as e:  # noqa: BLE001
@@ -225,7 +233,7 @@ def main():
             elif op == "analyze":
                 if analyzer is None:
                     analyzer = Analyzer()
-                result = analyzer.analyze(args["paths"])
+                result = analyzer.analyze(args["paths"], args.get("crops"))
             elif op == "shutdown":
                 send({"id": mid, "ok": True, "result": None})
                 break

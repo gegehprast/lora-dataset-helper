@@ -14,6 +14,7 @@ import {
 import { cancelJob, getJob, type JobContext, startJob } from "./jobs"
 import { analyzeDataset } from "./pipeline/analyze"
 import { captionDataset, captionImage } from "./pipeline/caption"
+import { setImageCrop } from "./pipeline/cropping"
 import { exportDataset } from "./pipeline/export"
 import {
   datasetDir,
@@ -22,7 +23,7 @@ import {
   thumbPath,
 } from "./pipeline/scan"
 import { runSelection } from "./pipeline/select"
-import { tagDataset } from "./pipeline/tag"
+import { reviewSingleImage, tagDataset } from "./pipeline/tag"
 import type { JobKind, Override, Settings } from "./types"
 import { listVisionModels } from "./venice"
 import { worker } from "./worker"
@@ -178,6 +179,37 @@ const server = Bun.serve({
       },
     },
 
+    "/api/images/:id/crop": {
+      PUT: async (req) => {
+        const row = getRow(Number(req.params.id))
+        if (!row) return fail("Not found", 404)
+        if (getJob(row.dataset)?.running)
+          return fail("Wait for the running job to finish before cropping", 409)
+        try {
+          const body = await readBody<{ crop?: unknown }>(req)
+          const { warning } = await setImageCrop(row.id, body.crop ?? null)
+          return json({ ...datasetPayload(row.dataset), warning })
+        } catch (e) {
+          return fail(e)
+        }
+      },
+    },
+
+    "/api/images/:id/review": {
+      POST: async (req) => {
+        const row = getRow(Number(req.params.id))
+        if (!row) return fail("Not found", 404)
+        if (getJob(row.dataset)?.running)
+          return fail("Wait for the running job to finish", 409)
+        try {
+          await reviewSingleImage(row.id)
+          return json(datasetPayload(row.dataset))
+        } catch (e) {
+          return fail(e, 502)
+        }
+      },
+    },
+
     "/api/images/:id/caption": {
       POST: async (req) => {
         try {
@@ -211,9 +243,10 @@ const server = Bun.serve({
     },
 
     "/thumbs/:file": (req) => {
-      const hash = req.params.file.replace(/\.webp$/, "")
-      if (!/^[0-9a-f]{40}$/.test(hash)) return fail("Bad thumbnail", 400)
-      return new Response(Bun.file(thumbPath(hash)), {
+      const id = req.params.file.replace(/\.webp$/, "")
+      if (!/^[0-9a-f]{40}(-[0-9a-f]{8})?$/.test(id))
+        return fail("Bad thumbnail", 400)
+      return new Response(Bun.file(thumbPath(id)), {
         headers: { "Cache-Control": "public, max-age=31536000, immutable" },
       })
     },

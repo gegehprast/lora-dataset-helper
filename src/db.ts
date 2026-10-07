@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite"
 import { paths } from "./config"
+import { cropFromJson, cropKey } from "./crop"
 import {
   type Analysis,
   DEFAULT_SETTINGS,
@@ -58,6 +59,8 @@ function addColumn(table: string, column: string, type: string) {
   }
 }
 addColumn("images", "outfit_group", "TEXT")
+addColumn("images", "crop", "TEXT")
+addColumn("images", "caption_stale", "INTEGER NOT NULL DEFAULT 0")
 
 /** Raw row shape. */
 export interface ImageRow {
@@ -85,6 +88,9 @@ export interface ImageRow {
   caption: string | null
   caption_model: string | null
   outfit_group: string | null
+  /** JSON Crop or NULL. */
+  crop: string | null
+  caption_stale: number
 }
 
 // ---------- datasets ----------
@@ -185,6 +191,8 @@ export function toRecord(row: ImageRow): ImageRecord {
     id: row.id,
     relPath: row.rel_path,
     hash: row.file_hash,
+    thumb: thumbId(row),
+    crop: cropFromJson(row.crop),
     width: row.width,
     height: row.height,
     status: row.status,
@@ -194,6 +202,7 @@ export function toRecord(row: ImageRow): ImageRecord {
     dupOf: row.dup_of,
     override: row.override,
     caption: row.caption,
+    captionStale: !!row.caption_stale,
     tags: parseTags(row),
     outfitGroup: row.outfit_group,
     metrics: {
@@ -218,9 +227,13 @@ export function setCaption(
   caption: string | null,
   model: string | null,
 ) {
-  db.query("UPDATE images SET caption = ?, caption_model = ? WHERE id = ?").run(
-    caption,
-    model,
-    id,
-  )
+  db.query(
+    "UPDATE images SET caption = ?, caption_model = ?, caption_stale = 0 WHERE id = ?",
+  ).run(caption, model, id)
+}
+
+/** Thumbnail id: the file hash, plus the crop's key when cropped. */
+export function thumbId(row: Pick<ImageRow, "file_hash" | "crop">): string {
+  const crop = cropFromJson(row.crop)
+  return crop ? `${row.file_hash}-${cropKey(crop)}` : row.file_hash
 }

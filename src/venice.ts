@@ -1,6 +1,6 @@
-import sharp from "sharp"
 import { VENICE_BASE_URL, veniceKey } from "./config"
-import type { VeniceModel } from "./types"
+import { loadImage } from "./crop"
+import type { Crop, VeniceModel } from "./types"
 
 let modelCache: { at: number; models: VeniceModel[] } | null = null
 
@@ -89,10 +89,10 @@ export async function checkModel(
 /** Downscaled JPEG data URL: enough detail for the model, far fewer tokens than the original. */
 export async function imageDataUrl(
   path: string,
+  crop: Crop | null = null,
   maxSide = 1024,
 ): Promise<string> {
-  const buf = await sharp(path)
-    .rotate()
+  const buf = await (await loadImage(path, crop))
     .resize(maxSide, maxSide, { fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 88 })
     .toBuffer()
@@ -105,6 +105,8 @@ interface ChatOptions {
   prompt: string
   /** Image to attach. Omit for a text-only request. */
   imagePath?: string
+  /** Crop applied before sending: only the cropped region leaves the machine. */
+  crop?: Crop | null
   schema?: { name: string; schema: object }
   maxTokens?: number
   /** Refuse to send the image unless Venice marks the model as private. */
@@ -129,7 +131,9 @@ async function chat(opts: ChatOptions): Promise<string> {
             ? [
                 {
                   type: "image_url",
-                  image_url: { url: await imageDataUrl(opts.imagePath) },
+                  image_url: {
+                    url: await imageDataUrl(opts.imagePath, opts.crop),
+                  },
                 },
               ]
             : []),

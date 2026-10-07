@@ -1,4 +1,5 @@
 import type {
+  Crop,
   DatasetSummary,
   ImageRecord,
   JobKind,
@@ -64,7 +65,15 @@ export const api = {
     call<{ caption: string }>(`/api/images/${id}/caption`, { method: "POST" }),
   toggleReference: (id: number) =>
     call<DatasetData>(`/api/images/${id}/reference`, { method: "POST" }),
+  setCrop: (id: number, crop: Crop | null) =>
+    call<DatasetData & { warning: string | null }>(`/api/images/${id}/crop`, {
+      method: "PUT",
+      body: { crop },
+    }),
+  reviewImage: (id: number) =>
+    call<DatasetData>(`/api/images/${id}/review`, { method: "POST" }),
 }
 
 export const imageUrl = (id: number) => `/api/images/${id}/file`
-export const thumbUrl = (hash: string) => `/thumbs/${hash}.webp`
+/** `thumb` is ImageRecord.thumb (includes the crop). */
+export const thumbUrl = (thumb: string) => `/thumbs/${thumb}.webp`

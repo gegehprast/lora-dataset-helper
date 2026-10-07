@@ -7,6 +7,7 @@ How the app is built and how to change it. For using the app, see the [User Guid
 - [Development setup](#development-setup)
 - [Data model](#data-model)
 - [Pipeline](#pipeline)
+- [Cropping](#cropping)
 - [Selection algorithm](#selection-algorithm)
 - [Python worker](#python-worker)
 - [Venice client](#venice-client)
@@ -145,6 +146,8 @@ SQLite at `data/.cache/app.sqlite` (WAL mode). Created on startup in `src/db.ts`
 | `override` | UI | `include` · `exclude` · NULL |
 | `caption`, `caption_model` | caption / UI | |
 | `outfit_group` | tag (`groupOutfits`) | Label shared by images in the same outfit. Added by `addColumn()` on older databases. |
+| `crop` | crop editor (`setImageCrop`) | JSON `{x, y, w, h}`, normalized 0–1 relative to the **EXIF-rotated** image; NULL = none. Cleared when the file changes. |
+| `caption_stale` | `setImageCrop` / `setCaption` | 1 when the crop changed after the caption was written; `setCaption` clears it. |
 
 `toRecord()` turns a row into the `ImageRecord` the UI uses. Embeddings never leave the server.
 
@@ -188,6 +191,28 @@ See [Selection algorithm](#selection-algorithm). Synchronous; runs in well under
 ### export (`pipeline/export.ts`)
 
 Deletes and recreates `data/output/<dataset>/{selected,reserve,rejected}`, copies files (sub-folders flattened to `a__b.jpg`, with collisions numbered), writes `<stem>.txt` for selected images, and writes `report.json`. Nothing outside those three folders and the report is touched.
+
+## Cropping
+
+Crops never modify input files. `src/crop.ts` has the shared pieces:
+- `parseCrop()` validates untrusted input: it clamps to the image, rejects tiny crops, and treats the full image as no crop.
+- `cropPixels()` converts a crop to pixels.
+- `cropKey()` makes the short id used in thumbnail names (`<sha1>-<cropKey>.webp`, see `thumbId()`).
+- `loadImage(path, crop)` returns a sharp pipeline of the EXIF-rotated, cropped image. Rotation goes through a raw (lossless) intermediate, because the crop must be applied *after* rotation: the user drew it on the rotated image. Thumbnails, the Venice upload (`imageDataUrl`) and export all use it, so they agree pixel for pixel.
+
+The worker takes an optional `crops` list (`[x, y, w, h]` or null per path) next to `paths`, and crops after `exif_transpose`, using the same rounding as `cropPixels()`.
+
+`setImageCrop(id, crop)` (`pipeline/cropping.ts`, `PUT /api/images/:id/crop`):
+1. Stores the crop and resets everything derived from the pixels: analysis, embeddings, size, selection fields, review (`tags`) and `outfit_group`. It sets `caption_stale` if there's a caption.
+2. Creates the cropped thumbnail.
+3. Re-analyzes the image through `analyzeRows()` (the batch analysis uses the same function). If that fails, for example because the worker isn't installed or the GPU is out of memory, the crop is still saved, a warning is returned, and the next **Scan & analyze** retries.
+4. Re-selects.
+
+Refused while a job runs on the dataset (409).
+
+`reviewSingleImage(id)` (`POST /api/images/:id/review`) reviews one image now, subject to the same Local only and private-only checks as the batch review. The image's `outfit_group` is reset, so the next grouping run includes it.
+
+Export cuts crops from the original pixels and re-encodes in the source format (JPEG/WebP quality 95 with 4:4:4 chroma, PNG lossless; other formats as PNG). Uncropped images are still copied byte for byte.
 
 ## Selection algorithm
 
@@ -301,8 +326,10 @@ All JSON. `DatasetData = { name, settings, images: ImageRecord[], job }`.
 | PATCH | `/api/images/:id` | `{ override? }` and/or `{ caption? }` | `DatasetData` |
 | POST | `/api/images/:id/caption` | | `{ caption }`, generated synchronously |
 | POST | `/api/images/:id/reference` | | `DatasetData`; toggles the image in `referenceImageIds` |
+| PUT | `/api/images/:id/crop` | `{ crop: {x,y,w,h} \| null }` | `DatasetData & { warning }`; 409 while a job runs |
+| POST | `/api/images/:id/review` | | `DatasetData`; reviews this image now |
 | GET | `/api/images/:id/file` | | the original image |
-| GET | `/thumbs/:sha1.webp` | | thumbnail (immutable cache) |
+| GET | `/thumbs/:thumb.webp` | | thumbnail (immutable cache); `thumb` is `<sha1>` or `<sha1>-<cropKey>` |
 | GET | `/`, `/dataset/*` | | the SPA (`web/index.html`) |
 
 ## Frontend
@@ -328,6 +355,7 @@ React 19, bundled by Bun's HTML imports, so there's no Vite or separate build st
 | File | Covers |
 |---|---|
 | `select.test.ts` | identity (automatic, references, group photos, background faces), every hard check, AI hard and soft issues, duplicates (hash, CLIP, pinned), overrides, target and reserve, framing quotas and fallback, the variety slider |
+| `crop.test.ts` | crop validation and maths, crops on EXIF-rotated images (pixel colours checked), the cropped Venice upload, `setImageCrop` (re-analysis with a fake worker, invalidation, outdated caption, failure warning, removal, reset on file change), export of crops, single-image review |
 | `ai-stages.test.ts` | review and caption stages with a mocked Venice: what gets sent, caching per model, Local only and private-only blocking with zero requests sent, early abort, partial failures, overwrite rules |
 | `venice.test.ts` | model list parsing and caching, `checkModel` (fail-closed), request shape (1024 px JPEG, `venice_parameters`, JSON mode only when supported), JSON extraction, retries |
 | `files.test.ts` | scan (sub-folders, change detection, deletes, unreadable files) and export (folders, captions, name flattening, report, replacing old exports, input untouched) |

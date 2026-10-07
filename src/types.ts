@@ -5,6 +5,17 @@ export type CaptionStyle = "natural" | "tags"
 export type ImageStatus = "pending" | "selected" | "reserve" | "rejected"
 export type Override = "include" | "exclude" | null
 
+/**
+ * Crop rectangle, normalized 0–1 relative to the image as displayed (after EXIF rotation).
+ * Stored per image; the input file is never changed.
+ */
+export interface Crop {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 /** Review attributes the selection can spread across. */
 export const VARIETY_ATTRIBUTES = [
   "outfit",
@@ -218,6 +229,9 @@ export interface ImageRecord {
   id: number
   relPath: string
   hash: string
+  /** Thumbnail id (includes the crop, if any): /thumbs/<thumb>.webp */
+  thumb: string
+  crop: Crop | null
   width: number | null
   height: number | null
   status: ImageStatus
@@ -227,6 +241,8 @@ export interface ImageRecord {
   dupOf: number | null
   override: Override
   caption: string | null
+  /** The crop changed after this caption was written. */
+  captionStale: boolean
   tags: VisionTags | null
   /** Outfit group label shared by images with the same outfit (after review). */
   outfitGroup: string | null

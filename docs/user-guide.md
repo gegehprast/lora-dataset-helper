@@ -110,8 +110,27 @@ Click a thumbnail to open it full size. Use **←** / **→** to move through th
 - Include / exclude buttons
 - **Use as reference**: marks this image's face as the definition of the character (see [Identity](#identity))
 - Rejection reasons. For a near-duplicate, it also shows which image it duplicates.
+- **✂ Crop / Edit crop** (see [Cropping](#cropping))
 - The caption editor: **Save** keeps your edit, **Generate / Regenerate** asks the AI for a new one
-- The AI review and the local measurements
+- The AI review, with **Review this image** / **Review again** to review just this image now
+- The local measurements
+
+### Cropping
+
+Crop an image to rescue it or to add variety: cut out another person or a watermark, or turn a full-body shot into a half-body or close-up.
+
+1. Open the image and click **✂ Crop**.
+2. Drag the box to move it, drag its corners to resize, or drag on the image to draw a new box. Choose an aspect ratio (Free, 1:1, 4:5, 3:4, 2:3, 9:16, 5:4, 4:3, 3:2, 16:9) to lock the shape.
+3. The toolbar shows the size of the result in pixels, and warns when it's below *Min short side*.
+4. **Save crop** (or Enter). **Cancel** (or Esc) leaves it unchanged. **Remove crop** goes back to the whole image.
+
+Crops are **non-destructive**: the input file is never changed, and you can edit or remove a crop any time. After a crop is saved:
+- The image is **analyzed again, on your computer**, using only the cropped region (face, sharpness, resolution, framing, duplicates…) and the selection updates. This takes well under a second, or up to about 20 seconds when the analysis models first have to load.
+- Its **AI review is discarded**, because it described the old framing. The next **Review with Venice** reviews it again, or click **Review this image**. Only the cropped region is sent.
+- An existing **caption is kept but marked outdated**: an orange **txt !** badge in the grid and a note in the detail view. Check it, or click **Regenerate**. Saving or regenerating clears the mark.
+- The thumbnail shows the crop, and the grid shows a **crop** badge.
+
+Cropping isn't possible while a job (scan, review, captioning…) is running for the dataset.
 
 ### Identity
 
@@ -219,6 +238,7 @@ data/output/<dataset>/
 - Images from sub-folders are renamed `sub__name.jpg` so names don't collide.
 - The `image.txt` next to `image.jpg` convention works with kohya-ss, ai-toolkit, OneTrainer and similar trainers.
 - Images are exported at their original size; your trainer handles resizing and bucketing.
+- **Cropped images** are cut straight from the original file's pixels, with no resizing, and saved in the same format: JPEG and WebP at quality 95, PNG lossless. Formats that can't be written (e.g. BMP) are saved as PNG. `report.json` records each crop. Uncropped images are copied byte for byte.
 
 ## Privacy
 
@@ -226,7 +246,7 @@ data/output/<dataset>/
 |---|---|
 | Your original images | Stay on your computer |
 | Thumbnails, measurements, database | `data/.cache/` on your computer |
-| **Step 2 (review)** | A copy downscaled to at most 1024 px, for **only** the images that passed the local checks, is sent to Venice AI |
+| **Step 2 (review)** | A copy downscaled to at most 1024 px, for **only** the images that passed the local checks, is sent to Venice AI. For a cropped image, only the cropped region is sent. |
 | **Step 3 (caption)** | The same kind of downscaled copy, for **selected** images only |
 | Model weights | Downloaded once from Hugging Face and GitHub; nothing is uploaded |
 

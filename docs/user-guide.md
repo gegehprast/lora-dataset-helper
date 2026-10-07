@@ -268,6 +268,7 @@ Only steps 2 and 3 cost money, billed by Venice per token. A downscaled image is
 | Problem | Fix |
 |---|---|
 | "Python worker is not set up" | Run `bun run setup:worker`, then restart the app. |
+| A game or another app is using the GPU | Nothing to do. If the GPU runs out of memory, analysis switches to the CPU by itself and keeps going, just more slowly. The step's summary says *"ran on the CPU: GPU out of memory"*. It goes back to the GPU after you restart the app. To always use the CPU, add `LORA_WORKER_DEVICE=cpu` to `.env`. |
 | Analysis is slow / the server log says the face models use CPU | Rerun `bun run setup:worker`. Check that its last lines show `cuda: True` and `CUDAExecutionProvider`. |
 | "VENICE_API_KEY is not set" | Create `.env` from `.env.example`, add the key, restart the app. |
 | "Venice requests are failing: …" | The first requests all failed, so the step stopped. Usually the key is wrong, the model id no longer exists, or you're out of credit. The message includes Venice's reply. |

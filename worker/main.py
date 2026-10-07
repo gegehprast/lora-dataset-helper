@@ -63,16 +63,52 @@ def resize_to(gray, long_side=None, height=None):
     return cv2.resize(gray, (max(1, round(w * s)), max(1, round(h * s))), interpolation=cv2.INTER_AREA)
 
 
+class GpuOutOfMemory(Exception):
+    pass
+
+
+def is_oom(e):
+    """CUDA out-of-memory from torch or onnxruntime (which raises a generic error with a message)."""
+    msg = str(e).lower()
+    return (
+        type(e).__name__ == "OutOfMemoryError"
+        or "out of memory" in msg
+        or "failed to allocate memory" in msg
+        or "cudnn_status_alloc_failed" in msg
+        or "cublas_status_alloc_failed" in msg
+    )
+
+
 class Analyzer:
-    def __init__(self):
+    """Runs on the GPU when available. If the GPU runs out of memory (e.g. a game is using it),
+    it switches to the CPU for the rest of the session: slower, but analysis keeps working.
+    LORA_WORKER_DEVICE=cpu forces the CPU from the start."""
+
+    def __init__(self, force_cpu=False):
         import torch
 
         os.makedirs(MODELS_DIR, exist_ok=True)
         self.torch = torch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        force_cpu = force_cpu or os.environ.get("LORA_WORKER_DEVICE", "").lower() == "cpu"
+        self.device = "cuda" if torch.cuda.is_available() and not force_cpu else "cpu"
+        self.fallback_reason = None
         log("device:", self.device)
         self._load_clip()
         self._load_aesthetic()
+        self._load_faces()
+
+    def to_cpu(self, reason):
+        """Move every model to the CPU (after a GPU out-of-memory error)."""
+        log("switching to CPU:", reason)
+        self.device = "cpu"
+        self.fallback_reason = reason
+        self.clip = self.clip.to("cpu").float()
+        self.aesthetic = self.aesthetic.to("cpu")
+        self.faces = None
+        try:
+            self.torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
         self._load_faces()
 
     def _load_clip(self):
@@ -123,14 +159,15 @@ class Analyzer:
             except Exception as e:  # noqa: BLE001
                 log("onnxruntime preload_dlls failed:", e)
         available = ort.get_available_providers()
-        providers = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider") if p in available]
+        wanted = ("CUDAExecutionProvider", "CPUExecutionProvider") if self.device == "cuda" else ("CPUExecutionProvider",)
+        providers = [p for p in wanted if p in available]
         log("loading InsightFace buffalo_l with", providers, "...")
         self.faces = FaceAnalysis(name="buffalo_l", root=os.path.join(MODELS_DIR, "insightface"), providers=providers)
         self.faces.prepare(ctx_id=0 if "CUDAExecutionProvider" in providers else -1, det_size=(640, 640))
         self.face_providers = providers
 
     def info(self):
-        return {"device": self.device, "faceProviders": self.face_providers}
+        return {"device": self.device, "faceProviders": self.face_providers, "fallback": self.fallback_reason}
 
     def _analyze_one(self, path, crop=None):
         import cv2
@@ -185,6 +222,15 @@ class Analyzer:
         return result, im
 
     def analyze(self, paths, crops=None):
+        try:
+            return self._analyze(paths, crops)
+        except GpuOutOfMemory as e:
+            if self.device == "cpu":
+                raise
+            self.to_cpu(f"GPU out of memory ({e})")
+            return self._analyze(paths, crops)
+
+    def _analyze(self, paths, crops):
         torch = self.torch
         results, images = [], []
         crops = crops or [None] * len(paths)
@@ -194,6 +240,8 @@ class Analyzer:
                 results.append(r)
                 images.append(im)
             except Exception as e:  # noqa: BLE001
+                if self.device == "cuda" and is_oom(e):
+                    raise GpuOutOfMemory(str(e)[:200]) from e
                 log("analyze failed:", p, e)
                 results.append({"error": f"{type(e).__name__}: {e}"})
                 images.append(None)
@@ -202,8 +250,13 @@ class Analyzer:
         for start in range(0, len(ok), CLIP_BATCH):
             idx = ok[start:start + CLIP_BATCH]
             batch = torch.stack([self.preprocess(images[i]) for i in idx]).to(self.device)
-            with torch.no_grad(), torch.autocast(self.device, enabled=self.device == "cuda"):
-                emb = self.clip.encode_image(batch).float()
+            try:
+                with torch.no_grad(), torch.autocast(self.device, enabled=self.device == "cuda"):
+                    emb = self.clip.encode_image(batch).float()
+            except Exception as e:  # noqa: BLE001
+                if self.device == "cuda" and is_oom(e):
+                    raise GpuOutOfMemory(str(e)[:200]) from e
+                raise
             emb = emb / emb.norm(dim=-1, keepdim=True)
             with torch.no_grad():
                 scores = self.aesthetic(emb).squeeze(-1).cpu().tolist()
@@ -212,6 +265,25 @@ class Analyzer:
                 results[i]["aesthetic"] = float(scores[j])
                 results[i]["clip"] = b64_f32(emb[j])
         return results
+
+
+def load_analyzer():
+    """Load the models on the GPU; if that alone runs out of memory, load them on the CPU."""
+    try:
+        return Analyzer()
+    except Exception as e:  # noqa: BLE001
+        if not is_oom(e):
+            raise
+        log("GPU out of memory while loading models; using the CPU:", e)
+        import torch
+
+        try:
+            torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+        a = Analyzer(force_cpu=True)
+        a.fallback_reason = "GPU out of memory while loading models"
+        return a
 
 
 def main():
@@ -228,11 +300,11 @@ def main():
                 result = "pong"
             elif op == "load":
                 if analyzer is None:
-                    analyzer = Analyzer()
+                    analyzer = load_analyzer()
                 result = analyzer.info()
             elif op == "analyze":
                 if analyzer is None:
-                    analyzer = Analyzer()
+                    analyzer = load_analyzer()
                 result = analyzer.analyze(args["paths"], args.get("crops"))
             elif op == "shutdown":
                 send({"id": mid, "ok": True, "result": None})

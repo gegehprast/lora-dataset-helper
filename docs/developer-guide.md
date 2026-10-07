@@ -100,6 +100,7 @@ In VS Code, install the recommended Biome extension (`.vscode/extensions.json`).
 | `PORT` | `3000` | HTTP port |
 | `VENICE_BASE_URL` | `https://api.venice.ai/api/v1` | Override for a proxy or mock |
 | `PYTHON` | `python3.12` | Interpreter used by `setup-worker.sh` |
+| `LORA_WORKER_DEVICE` | auto | `cpu` makes the worker skip the GPU |
 | `NODE_ENV=production` | | `bun run start`: disables HMR |
 
 Bun loads `.env` automatically. The worker receives `MODELS_DIR=data/.cache/models` from the server.
@@ -296,6 +297,8 @@ The weights and constants are first guesses, checked only on a 30-image set. The
 - `PythonWorker` sends one request at a time (`chain`), starts the process lazily, rejects pending calls if the process exits, and restarts it on the next call. Both the worker and the job map live on `globalThis` so `bun --hot` reloads don't start a second Python process.
 
 **Models** (in `data/.cache/models/`): open_clip `ViT-L-14-quickgelu` / `openai`; the LAION improved-aesthetic-predictor MLP (`sac+logos+ava1-l14-linearMSE.pth`); InsightFace `buffalo_l`. The `-quickgelu` variant is required: plain `ViT-L-14` with OpenAI weights gives slightly wrong embeddings, which skews the aesthetic score.
+
+**GPU memory:** `is_oom()` recognises CUDA out-of-memory errors from torch and onnxruntime (onnxruntime raises a generic error with a message). If one happens during `analyze`, `Analyzer.to_cpu()` moves CLIP and the aesthetic head to the CPU, reloads InsightFace with only the CPU provider, and reruns the batch. If it happens while loading, `load_analyzer()` loads on the CPU instead. The worker stays on the CPU until it restarts. `info()` (the `load` op) reports `fallback`, and the analyze stage adds *"ran on the CPU: …"* to its summary. Both paths were checked on the real GPU by capping torch's memory (`set_per_process_memory_fraction`); CPU and GPU give the same scores.
 
 **Adding a worker op**: add a branch in `main()` (and a method on `Analyzer` if it needs models), then call it with `worker.call<ResultType>("op", args)`. Keep inputs and outputs JSON; pass file paths, not image bytes.
 

@@ -87,13 +87,22 @@ export async function analyzeDataset(dataset: string, ctx: JobContext) {
   if (!todo.length) return "Everything already analyzed"
 
   ctx.stage("Loading local models", 0)
-  const info = await worker.call<{ device: string; faceProviders: string[] }>(
-    "load",
-  )
+  type Info = {
+    device: string
+    faceProviders: string[]
+    fallback: string | null
+  }
+  const info = await worker.call<Info>("load")
   ctx.stage(`Analyzing locally (${info.device})`, todo.length)
   const errors = await analyzeRows(dir, todo, {
     onBatch: (n) => ctx.tick(n),
     check: () => ctx.check(),
   })
-  return `Analyzed ${todo.length} images${errors ? ` (${errors} failed)` : ""}`
+  // The worker switches to the CPU by itself if the GPU runs out of memory; say so.
+  const after = await worker.call<Info>("load")
+  const notes = [
+    errors ? `${errors} failed` : "",
+    after.fallback ? `ran on the CPU: ${after.fallback}` : "",
+  ].filter(Boolean)
+  return `Analyzed ${todo.length} images${notes.length ? ` (${notes.join("; ")})` : ""}`
 }

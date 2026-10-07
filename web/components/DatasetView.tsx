@@ -30,6 +30,9 @@ export function DatasetView({ name }: { name: string }) {
   const [job, setJob] = useState<JobState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>("selected")
+  // Filter by a review attribute value, e.g. one outfit group. null = any value.
+  const [attr, setAttr] = useState<VarietyAttribute>("outfit")
+  const [attrValue, setAttrValue] = useState<string | null>(null)
   const [sort, setSort] = useState<"score" | "name">("score")
   const [openId, setOpenId] = useState<number | null>(null)
   const [showSettings, setShowSettings] = useState(true)
@@ -75,27 +78,47 @@ export function DatasetView({ name }: { name: string }) {
     guarded(api.saveSettings(name, patch))
 
   const images = data?.images ?? []
+  const attrOptions = useMemo(
+    () => attributeOptions(images, attr),
+    [images, attr],
+  )
+
+  const attrImages = useMemo(() => {
+    if (attrValue == null) return images
+    return images.filter((im) => {
+      const v = attributeValue(im, attr)
+      return attrValue === NOT_REVIEWED ? v == null : v === attrValue
+    })
+  }, [images, attr, attrValue])
+
   const counts = useMemo(() => {
     const c: Record<Filter, number> = {
       selected: 0,
       reserve: 0,
       rejected: 0,
       pending: 0,
-      all: images.length,
+      all: attrImages.length,
     }
-    for (const im of images) c[im.status]++
+    for (const im of attrImages) c[im.status]++
     return c
-  }, [images])
+  }, [attrImages])
 
   const visible = useMemo(() => {
     const list =
-      filter === "all" ? images : images.filter((im) => im.status === filter)
+      filter === "all"
+        ? attrImages
+        : attrImages.filter((im) => im.status === filter)
     return [...list].sort((a, b) =>
       sort === "score"
         ? (b.score ?? -1) - (a.score ?? -1)
         : a.relPath.localeCompare(b.relPath),
     )
-  }, [images, filter, sort])
+  }, [attrImages, filter, sort])
+
+  const pickAttribute = (a: VarietyAttribute, value: string | null) => {
+    setAttr(a)
+    setAttrValue(value)
+  }
 
   if (!data)
     return (
@@ -224,7 +247,11 @@ export function DatasetView({ name }: { name: string }) {
           </div>
         )}
 
-        <SelectionStats selected={selected} settings={s} />
+        <SelectionStats
+          selected={selected}
+          settings={s}
+          onPick={pickAttribute}
+        />
 
         <div className="toolbar">
           <div className="tabs">
@@ -238,6 +265,44 @@ export function DatasetView({ name }: { name: string }) {
                 {f.label} <span className="count">{counts[f.id]}</span>
               </button>
             ))}
+          </div>
+          <div className="attr-filter">
+            <select
+              aria-label="Filter by attribute"
+              value={attr}
+              onChange={(e) =>
+                pickAttribute(e.target.value as VarietyAttribute, null)
+              }
+            >
+              {VARIETY_ATTRIBUTES.map((a) => (
+                <option key={a} value={a}>
+                  {VARIETY_LABELS[a]}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label={`Filter by ${VARIETY_LABELS[attr].toLowerCase()}`}
+              className={attrValue != null ? "active" : ""}
+              value={attrValue ?? ""}
+              onChange={(e) => setAttrValue(e.target.value || null)}
+            >
+              <option value="">Any {VARIETY_LABELS[attr].toLowerCase()}</option>
+              {attrOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.value === NOT_REVIEWED ? "Not reviewed" : pretty(o.value)}{" "}
+                  ({o.selected} selected / {o.total})
+                </option>
+              ))}
+            </select>
+            {attrValue != null && (
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => setAttrValue(null)}
+              >
+                Clear
+              </button>
+            )}
           </div>
           <label className="sort">
             Sort
@@ -358,9 +423,11 @@ const FRAMING_LABEL: Record<Framing, string> = {
 function SelectionStats({
   selected,
   settings,
+  onPick,
 }: {
   selected: ImageRecord[]
   settings: Settings
+  onPick: (a: VarietyAttribute, value: string) => void
 }) {
   if (!selected.length) return null
   const mixTotal = FRAMINGS.reduce((a, f) => a + settings.framingMix[f], 0) || 1
@@ -387,7 +454,7 @@ function SelectionStats({
           <span className="stat-label">{FRAMING_LABEL[f]}</span>
         </div>
       ))}
-      <VarietySummary selected={selected} settings={settings} />
+      <VarietySummary selected={selected} settings={settings} onPick={onPick} />
     </div>
   )
 }
@@ -405,9 +472,11 @@ function attributeValue(im: ImageRecord, a: VarietyAttribute): string | null {
 function VarietySummary({
   selected,
   settings,
+  onPick,
 }: {
   selected: ImageRecord[]
   settings: Settings
+  onPick: (a: VarietyAttribute, value: string) => void
 }) {
   const reviewed = selected.filter((im) => im.tags).length
   return (
@@ -446,10 +515,15 @@ function VarietySummary({
                   {top && (
                     <>
                       {" · most: "}
-                      <span className={dominant ? "warn-text" : ""}>
-                        {top.replaceAll("_", " ")} ×{topN}
+                      <button
+                        type="button"
+                        className={`link${dominant ? " warn-text" : ""}`}
+                        title="Show these images"
+                        onClick={() => onPick(a, top)}
+                      >
+                        {pretty(top)} ×{topN}
                         {dominant && " ⚠"}
-                      </span>
+                      </button>
                     </>
                   )}
                 </span>
@@ -460,4 +534,30 @@ function VarietySummary({
       )}
     </div>
   )
+}
+
+/** Option value for images without a review (no attribute value yet). */
+const NOT_REVIEWED = "\u0000not-reviewed"
+
+const pretty = (v: string) => v.replaceAll("_", " ")
+
+/** Values of attribute `a` across the dataset, most common first, with selected counts. */
+function attributeOptions(images: ImageRecord[], a: VarietyAttribute) {
+  const byValue = new Map<string, { total: number; selected: number }>()
+  for (const im of images) {
+    if (im.status === "pending") continue
+    const v = attributeValue(im, a) ?? NOT_REVIEWED
+    const entry = byValue.get(v) ?? { total: 0, selected: 0 }
+    entry.total++
+    if (im.status === "selected") entry.selected++
+    byValue.set(v, entry)
+  }
+  return [...byValue.entries()]
+    .map(([value, c]) => ({ value, ...c }))
+    .sort(
+      (x, y) =>
+        Number(x.value === NOT_REVIEWED) - Number(y.value === NOT_REVIEWED) ||
+        y.total - x.total ||
+        x.value.localeCompare(y.value),
+    )
 }

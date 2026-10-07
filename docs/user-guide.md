@@ -76,6 +76,18 @@ Adding, removing or editing files in the input folder is picked up the next time
 
 Sort by **Score** (best first) or **Name**.
 
+### Filtering by outfit and other review attributes
+
+The two drop-downs next to the tabs filter the grid by a value from the AI review:
+- **First drop-down:** the attribute: outfit (the outfit group), setting, expression, view, lighting or camera angle.
+- **Second drop-down:** a value, listed most common first with counts, e.g. *"black hoodie, jeans (6 selected / 14)"*. *Not reviewed* shows images without a review.
+
+The tab counts follow the filter, so you can see how many images of an outfit are selected, in reserve or rejected. **Clear** removes the filter.
+
+In the summary bar's *Variety of the selection*, the most common value of each attribute is a link that sets this filter. For example, clicking *"black hoodie, jeans ×6 ⚠"* shows those images.
+
+Outfit groups are named after the shortest description in the group. An image's detail view shows its own outfit description, and its group when the two differ.
+
 ### Thumbnails
 
 - **Green border**: selected. **Dashed border**: reserve. **Faded**: rejected.

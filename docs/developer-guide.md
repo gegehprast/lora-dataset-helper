@@ -245,6 +245,7 @@ The weights and constants are first guesses, checked only on a 30-image set. The
 `src/venice.ts` uses plain `fetch` against the OpenAI-compatible API.
 
 - `listVisionModels()`: `GET /models?type=text`, keeps `supportsVision`, records `model_spec.privacy` (`"private"` / `"anonymized"`), `supportsResponseSchema` and `supportsE2EE`. Cached for 10 minutes.
+- `assertOnlineAllowed(dataset, localOnly)`: throws for datasets with the `localOnly` setting. Called at the start of `tagDataset`, `captionDataset` and `captionImage`; the `auto` job skips the review instead.
 - `checkModel(model, requirePrivate)`: runs before every request, and once at the start of the tag and caption stages. With `requirePrivate` (the `privateModelsOnly` setting) it **fails closed**: it throws if the model list can't be fetched or the model isn't marked private. It always rejects E2EE models, because the `enable_e2ee` client-side encryption isn't implemented.
 - `chat()`: sends a system prompt plus a user message with text and a `data:` JPEG. The image is resized by `sharp` to fit in 1024 px, EXIF-rotated, quality 88.
   - Always sends `venice_parameters: { include_venice_system_prompt: false, disable_thinking: true, strip_thinking_response: true }`, and also removes `<think>` blocks itself.
@@ -302,6 +303,7 @@ React 19, bundled by Bun's HTML imports, so there's no Vite or separate build st
 
 ## Rules and gotchas
 
+- The `test-character` dataset (a copy of `images-for-testing/`) has **Local only** turned on. Leave it on. Test Venice features on the `synthetic-demo` dataset of generated images instead.
 - **`images-for-testing/` is local-only.** Never commit it. Never send it, or anything derived from it (thumbnails, crops, base64), to Venice or any other online service. That includes opening it with AI tools that upload images. Use it only to test the local pipeline. Test Venice code with a synthetic image or images cleared for upload. See `CLAUDE.md`.
 - Input files are read-only to the app; only `data/output/` and `data/.cache/` are written.
 - `runSelection()` is skipped while a job runs on that dataset, so it doesn't race the job's own selection; the job reselects at the end.

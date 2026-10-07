@@ -198,6 +198,14 @@ textarea:focus {
   color: var(--danger);
   cursor: pointer;
 }
+.banner.local {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.dataset-main > .banner.local {
+  margin: 0 0 12px;
+}
 .banner.ok {
   background: var(--ok-bg);
   color: var(--ok);
@@ -490,12 +498,13 @@ textarea:focus {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+/* Fixed colours: badges sit on top of images, so they must read the same in both themes. */
 .badge.override-include,
 .badge.caption {
-  background: var(--ok);
+  background: #2b8a3e;
 }
 .badge.override-exclude {
-  background: var(--danger);
+  background: #c92a2a;
 }
 .badge.ref {
   background: #e8a317;

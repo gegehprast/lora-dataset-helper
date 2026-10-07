@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { db, getRow, getSettings, setCaption } from "../db";
 import { pool, type JobContext } from "../jobs";
 import type { Settings } from "../types";
-import { chatText, checkModel } from "../venice";
+import { assertOnlineAllowed, chatText, checkModel } from "../venice";
 import { datasetDir } from "./scan";
 
 export const CAPTION_SYSTEM = `You write training captions for a character LoRA: a fine-tune that teaches a text-to-image model one specific person. Good captions describe everything that changes from photo to photo and leave out the person's permanent features, so those get learned under the person's name. Output only the caption.`;
@@ -55,6 +55,7 @@ export async function captionImage(id: number): Promise<string> {
   const row = getRow(id);
   if (!row) throw new Error(`Image ${id} not found`);
   const s = getSettings(row.dataset);
+  assertOnlineAllowed(row.dataset, s.localOnly);
   const text = await chatText({
     model: s.captionModel,
     system: CAPTION_SYSTEM,
@@ -72,6 +73,7 @@ export async function captionImage(id: number): Promise<string> {
 /** Caption selected images. Without `overwrite`, images that already have a caption are skipped. */
 export async function captionDataset(dataset: string, ctx: JobContext, overwrite = false) {
   const s = getSettings(dataset);
+  assertOnlineAllowed(dataset, s.localOnly);
   if (!s.triggerWord.trim()) throw new Error("Set a trigger word in the settings before captioning");
   const todo = db
     .query<{ id: number; rel_path: string }, [string]>(

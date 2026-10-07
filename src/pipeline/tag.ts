@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { db, getSettings } from "../db";
 import { pool, type JobContext } from "../jobs";
 import { ISSUES, type VisionTags } from "../types";
-import { chatJson, checkModel } from "../venice";
+import { assertOnlineAllowed, chatJson, checkModel } from "../venice";
 import { datasetDir } from "./scan";
 import { runSelection } from "./select";
 
@@ -47,6 +47,7 @@ export const PROMPT = `Assess this photo of the main subject. Fields:
 /** Ask the vision model about every image that passed the local filters and has no tags from the current model. */
 export async function tagDataset(dataset: string, ctx: JobContext) {
   const s = getSettings(dataset);
+  assertOnlineAllowed(dataset, s.localOnly);
   const dir = datasetDir(dataset);
 
   ctx.stage("Pre-selecting with local metrics", 0);

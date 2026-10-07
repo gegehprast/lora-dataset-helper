@@ -6,6 +6,7 @@ interface Props {
   image: ImageRecord;
   all: ImageRecord[];
   isReference: boolean;
+  localOnly: boolean;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -121,7 +122,7 @@ export function ImageDetail(p: Props) {
             <button disabled={!dirty} onClick={() => p.onCaptionSaved(im.id, caption)}>
               Save
             </button>
-            <button className="ghost" disabled={busy} onClick={regenerate}>
+            <button className="ghost" disabled={busy || p.localOnly} title={p.localOnly ? "Dataset is Local only" : undefined} onClick={regenerate}>
               {busy ? "Generating…" : im.caption ? "Regenerate" : "Generate"}
             </button>
           </div>

@@ -52,7 +52,7 @@ export function SettingsPanel({ settings, onChange }: Props) {
 
   const modelLabel = (m: VeniceModel) =>
     `${m.privacy === "private" ? "🔒 " : ""}${m.id}` +
-    (m.priceIn != null ? ` — $${m.priceIn}/$${m.priceOut} per M` : "") +
+    (m.priceIn != null ? ` · $${m.priceIn}/$${m.priceOut}` : "") +
     (m.schema ? "" : " · no JSON mode") +
     (m.e2ee ? " · E2EE, not supported" : "");
 
@@ -89,7 +89,10 @@ export function SettingsPanel({ settings, onChange }: Props) {
                 : "Not a private model, so requests will be refused. Pick a 🔒 model."}
           </small>
         ) : (
-          <small>{hint}</small>
+          <small>
+            {hint}
+            {info?.priceIn != null && ` $${info.priceIn} in / $${info.priceOut} out per million tokens.`}
+          </small>
         )}
       </label>
     );
@@ -158,6 +161,12 @@ export function SettingsPanel({ settings, onChange }: Props) {
 
       <fieldset>
         <legend>Venice AI</legend>
+        <label className="check">
+          <input type="checkbox" checked={draft.localOnly} onChange={(e) => set("localOnly", e.target.checked, 0)} />
+          <span>
+            <b>Local only.</b> Never send this dataset's images to Venice. Review and captioning are blocked by the server.
+          </span>
+        </label>
         {modelError && <div className="banner error small">{modelError}</div>}
         {modelSelect("tagModel", "Review model", "Rates every image that passes the local filters. A cheap model is fine.")}
         {modelSelect("captionModel", "Caption model", "Only selected images are captioned.")}

@@ -85,24 +85,29 @@ export function DatasetView({ name }: { name: string }) {
   return (
     <div className={`dataset-layout ${showSettings ? "" : "settings-hidden"}`}>
       <main className="dataset-main">
+        {s.localOnly && (
+          <div className="banner local">
+            🔒 <b>Local only</b>: this dataset's images are never sent to Venice. AI review and captioning are off; you can still write captions by hand.
+          </div>
+        )}
         <section className="pipeline">
           <Step n={1} title="Analyze locally" detail={`${analyzed}/${images.length || "?"} analyzed`}>
             <button disabled={busy} onClick={() => run("analyze")}>
               Scan &amp; analyze
             </button>
           </Step>
-          <Step n={2} title="AI review" detail={`${tagged} reviewed by ${s.tagModel}`}>
-            <button disabled={busy || !analyzed} onClick={() => run("tag")}>
+          <Step n={2} title="AI review" detail={s.localOnly ? "Off: dataset is Local only" : `${tagged} reviewed by ${s.tagModel}`}>
+            <button disabled={busy || !analyzed || s.localOnly} onClick={() => run("tag")}>
               Review with Venice
             </button>
           </Step>
-          <Step n={3} title="Caption" detail={`${captioned}/${selected.length} captioned`}>
-            <button disabled={busy || !selected.length} onClick={() => run("caption")}>
+          <Step n={3} title="Caption" detail={`${captioned}/${selected.length} captioned${s.localOnly ? " · AI off (Local only)" : ""}`}>
+            <button disabled={busy || !selected.length || s.localOnly} onClick={() => run("caption")}>
               Caption missing
             </button>
             <button
               className="ghost"
-              disabled={busy || !selected.length}
+              disabled={busy || !selected.length || s.localOnly}
               onClick={() => confirm("Regenerate captions for all selected images, replacing manual edits?") && run("caption", { overwrite: true })}
             >
               Redo all
@@ -114,7 +119,7 @@ export function DatasetView({ name }: { name: string }) {
             </button>
           </Step>
           <div className="pipeline-side">
-            <button className="primary" disabled={busy} onClick={() => run("auto")} title="Steps 1 and 2">
+            <button className="primary" disabled={busy} onClick={() => run("auto")} title={s.localOnly ? "Step 1 only (Local only)" : "Steps 1 and 2"}>
               Run 1 + 2
             </button>
             <button className="ghost" onClick={() => setShowSettings((v) => !v)}>
@@ -164,6 +169,7 @@ export function DatasetView({ name }: { name: string }) {
           image={openImage}
           all={images}
           isReference={s.referenceImageIds.includes(openImage.id)}
+          localOnly={s.localOnly}
           onClose={() => setOpenId(null)}
           onPrev={openIndex > 0 ? () => setOpenId(visible[openIndex - 1]!.id) : undefined}
           onNext={openIndex >= 0 && openIndex < visible.length - 1 ? () => setOpenId(visible[openIndex + 1]!.id) : undefined}

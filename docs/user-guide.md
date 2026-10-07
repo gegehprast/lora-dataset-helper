@@ -138,6 +138,7 @@ Settings are saved per dataset. Changing a selection or filter setting redoes th
 
 | Setting | Default | Notes |
 |---|---|---|
+| Local only | off | Never send this dataset's images to Venice. The server blocks review and captioning for it (including **Run 1 + 2**, which then runs step 1 only); captions can still be written by hand. Use it for images that must stay on your computer. |
 | Review model | `google-gemma-4-31b-it` | Used for step 2. The list shows only models that accept images, with the price per million input/output tokens. 🔒 marks models Venice labels **private**. Models marked *no JSON mode* work but are less reliable for the review. Models marked *E2EE* need end-to-end encryption, which the app doesn't support yet, so they can't be chosen. |
 | Caption model | `qwen-3-8-27b` | Used for step 3. |
 | Private models only | on | Shows only 🔒 private models and makes the server refuse to send images to any other model. Turn it off to see the *anonymized* models too. |
@@ -211,7 +212,7 @@ data/output/<dataset>/
 | **Step 3 (caption)** | The same kind of downscaled copy, for **selected** images only |
 | Model weights | Downloaded once from Hugging Face and GitHub; nothing is uploaded |
 
-With **Private models only** on (the default), images are only sent to models Venice marks private. If the app can't confirm a model is private, for example because the model list didn't load, it sends nothing. Venice's own system prompt is turned off for these requests. To keep a dataset fully offline, use only steps 1 and 4 and write captions by hand in the detail view.
+With **Private models only** on (the default), images are only sent to models Venice marks private. If the app can't confirm a model is private, for example because the model list didn't load, it sends nothing. Venice's own system prompt is turned off for these requests. To keep a dataset fully offline, turn on **Local only** in its settings. The server then refuses every Venice request for that dataset, and you can write captions by hand in the detail view.
 
 ## Costs
 

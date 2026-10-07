@@ -34,6 +34,11 @@ export async function listVisionModels(): Promise<VeniceModel[]> {
   return models;
 }
 
+/** Throws for datasets marked "Local only". Call before anything that would send that dataset's images. */
+export function assertOnlineAllowed(dataset: string, localOnly: boolean) {
+  if (localOnly) throw new Error(`"${dataset}" is set to Local only, so its images are never sent to Venice.`);
+}
+
 /**
  * Look up the model before sending it an image. With `requirePrivate`, fails closed: if the model
  * list can't be fetched or the model isn't marked private, nothing is sent.

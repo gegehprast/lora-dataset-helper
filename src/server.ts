@@ -48,6 +48,7 @@ const JOBS: Record<JobKind, (dataset: string, ctx: JobContext, body: { overwrite
   export: (d, ctx) => exportDataset(d, ctx),
   auto: async (d, ctx) => {
     const local = await localPass(d, ctx);
+    if (getSettings(d).localOnly) return `${local}. AI review skipped: dataset is Local only.`;
     const tagged = await tagDataset(d, ctx);
     return `${local}. ${tagged}`;
   },

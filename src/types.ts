@@ -30,6 +30,8 @@ export interface Settings {
   referenceImageIds: number[];
   tagModel: string;
   captionModel: string;
+  /** Never send this dataset's images to Venice (review and captioning are blocked). Enforced server-side. */
+  localOnly: boolean;
   /** Only send images to models Venice marks as private. Enforced server-side. */
   privateModelsOnly: boolean;
   captionStyle: CaptionStyle;
@@ -55,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   referenceImageIds: [],
   tagModel: "google-gemma-4-31b-it",
   captionModel: "qwen-3-8-27b",
+  localOnly: false,
   privateModelsOnly: true,
   captionStyle: "natural",
   captionDescribeHair: true,

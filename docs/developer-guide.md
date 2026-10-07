@@ -210,6 +210,13 @@ The worker takes an optional `crops` list (`[x, y, w, h]` or null per path) next
 
 Refused while a job runs on the dataset (409).
 
+`suggestCrops()` (`src/crop-suggest.ts`, `GET /api/images/:id/crop-suggestions`) is a pure function. It works from the analysis's face boxes, mapped back to full-image coordinates when the image is already cropped:
+- **solo:** cuts away each other face taller than `otherPersonMinFace`. Each is modelled as the face widened sideways and extended to the bottom of the image (the body). The cut keeps the main face plus a margin, and the largest remaining rectangle wins (left of, right of, or above the person). It retries with tighter margins (`MARGINS`) for close two-person shots.
+- **closeup:** 4:5, about 2.8 face heights tall, face centre at 42% from the top. Offered when the face is under 28% of the image height.
+- **half:** 3:4, about 6.5 face heights, face centre at 20%. Offered when the face is under 10%.
+
+A suggestion is dropped when its short side is below `minShortSide`. On the 333-image test set: close-up 175, half body 6, solo 2. 48 of 54 *Multiple people* rejections come from the AI review alone, with no second face detected, so there's no position to cut at.
+
 `reviewSingleImage(id)` (`POST /api/images/:id/review`) reviews one image now, subject to the same Local only and private-only checks as the batch review. The image's `outfit_group` is reset, so the next grouping run includes it.
 
 Export cuts crops from the original pixels and re-encodes in the source format (JPEG/WebP quality 95 with 4:4:4 chroma, PNG lossless; other formats as PNG). Uncropped images are still copied byte for byte.
@@ -327,6 +334,7 @@ All JSON. `DatasetData = { name, settings, images: ImageRecord[], job }`.
 | POST | `/api/images/:id/caption` | | `{ caption }`, generated synchronously |
 | POST | `/api/images/:id/reference` | | `DatasetData`; toggles the image in `referenceImageIds` |
 | PUT | `/api/images/:id/crop` | `{ crop: {x,y,w,h} \| null }` | `DatasetData & { warning }`; 409 while a job runs |
+| GET | `/api/images/:id/crop-suggestions` | | `CropSuggestion[]` |
 | POST | `/api/images/:id/review` | | `DatasetData`; reviews this image now |
 | GET | `/api/images/:id/file` | | the original image |
 | GET | `/thumbs/:thumb.webp` | | thumbnail (immutable cache); `thumb` is `<sha1>` or `<sha1>-<cropKey>` |
@@ -355,6 +363,7 @@ React 19, bundled by Bun's HTML imports, so there's no Vite or separate build st
 | File | Covers |
 |---|---|
 | `select.test.ts` | identity (automatic, references, group photos, background faces), every hard check, AI hard and soft issues, duplicates (hash, CLIP, pinned), overrides, target and reserve, framing quotas and fallback, the variety slider |
+| `crop-suggest.test.ts` | suggestions: cutting others out (incl. a non-largest main face, tight two-shots, overlapping faces, small background faces), close-up/half framing and aspect, staying inside the image, the minimum size, already-cropped images |
 | `crop.test.ts` | crop validation and maths, crops on EXIF-rotated images (pixel colours checked), the cropped Venice upload, `setImageCrop` (re-analysis with a fake worker, invalidation, outdated caption, failure warning, removal, reset on file change), export of crops, single-image review |
 | `ai-stages.test.ts` | review and caption stages with a mocked Venice: what gets sent, caching per model, Local only and private-only blocking with zero requests sent, early abort, partial failures, overwrite rules |
 | `venice.test.ts` | model list parsing and caching, `checkModel` (fail-closed), request shape (1024 px JPEG, `venice_parameters`, JSON mode only when supported), JSON extraction, retries |

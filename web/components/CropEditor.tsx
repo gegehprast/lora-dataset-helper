@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import type { CropSuggestion } from "../../src/crop-suggest"
 import type { Crop } from "../../src/types"
 
 const MIN = 0.02
@@ -73,7 +74,11 @@ function fitAspect(c: Crop, na: number): Crop {
 
 interface Props {
   src: string
+  /** The image's saved crop, if any. */
   initial: Crop | null
+  /** Box to start with instead of `initial` (e.g. a suggestion). */
+  start?: Crop | null
+  suggestions?: CropSuggestion[]
   minShortSide: number
   saving: boolean
   onSave: (crop: Crop | null) => void
@@ -83,6 +88,8 @@ interface Props {
 export function CropEditor({
   src,
   initial,
+  start,
+  suggestions = [],
   minShortSide,
   saving,
   onSave,
@@ -91,7 +98,7 @@ export function CropEditor({
   const stage = useRef<HTMLDivElement>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [rect, setRect] = useState<Crop>(
-    initial ?? { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+    start ?? initial ?? { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
   )
   const [aspect, setAspect] = useState<number | null>(null)
   const drag = useRef<{
@@ -222,6 +229,25 @@ export function CropEditor({
           {saving ? "Saving…" : "Save crop"}
         </button>
       </div>
+      {suggestions.length > 0 && (
+        <div className="crop-suggestions">
+          <span className="muted">Suggested:</span>
+          {suggestions.map((sg) => (
+            <button
+              type="button"
+              key={sg.kind}
+              className="small"
+              title={`${sg.width} × ${sg.height} px`}
+              onClick={() => {
+                setAspect(null)
+                setRect(sg.crop)
+              }}
+            >
+              {sg.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="crop-area">
         <div
           ref={stage}

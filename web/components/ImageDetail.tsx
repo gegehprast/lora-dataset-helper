@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import type { CropSuggestion } from "../../src/crop-suggest"
 import type { Crop } from "../../src/types"
 import { type ImageRecord, type Override, REASON_LABELS } from "../../src/types"
 import { api, imageUrl, thumbUrl } from "../api"
@@ -31,6 +32,20 @@ export function ImageDetail(p: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cropping, setCropping] = useState(false)
+  const [cropStart, setCropStart] = useState<Crop | null>(null)
+  const [suggestions, setSuggestions] = useState<CropSuggestion[]>([])
+
+  // Suggestions depend on the analysis, which changes with the crop (thumb) and status.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the crop or analysis changes
+  useEffect(() => {
+    api.cropSuggestions(im.id).then(setSuggestions, () => setSuggestions([]))
+  }, [im.id, im.thumb, im.status])
+
+  const openCrop = (start: Crop | null) => {
+    setCropStart(start)
+    setCropping(true)
+  }
+  const solo = suggestions.find((sg) => sg.kind === "solo")
   const [cropSaving, setCropSaving] = useState(false)
   const [reviewing, setReviewing] = useState(false)
 
@@ -113,6 +128,8 @@ export function ImageDetail(p: Props) {
             <CropEditor
               src={imageUrl(im.id)}
               initial={im.crop}
+              start={cropStart}
+              suggestions={suggestions}
               minShortSide={p.minShortSide}
               saving={cropSaving}
               onSave={saveCrop}
@@ -189,7 +206,7 @@ export function ImageDetail(p: Props) {
               type="button"
               className={im.crop ? "primary" : "ghost"}
               disabled={cropping}
-              onClick={() => setCropping(true)}
+              onClick={() => openCrop(null)}
             >
               ✂ {im.crop ? "Edit crop" : "Crop"}
             </button>
@@ -206,6 +223,16 @@ export function ImageDetail(p: Props) {
                 <span className="dup">
                   of <img src={thumbUrl(dupOf.thumb)} alt="" /> {dupOf.relPath}
                 </span>
+              )}
+              {solo && im.reasons.includes("multiple_people") && !cropping && (
+                <button
+                  type="button"
+                  className="small"
+                  title={`Suggested crop: ${solo.width} × ${solo.height} px`}
+                  onClick={() => openCrop(solo.crop)}
+                >
+                  ✂ Crop out others
+                </button>
               )}
             </div>
           )}

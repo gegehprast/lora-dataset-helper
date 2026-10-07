@@ -2,10 +2,13 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import index from "../web/index.html"
 import { PORT, paths } from "./config"
+import { cropFromJson } from "./crop"
+import { suggestCrops } from "./crop-suggest"
 import {
   getRow,
   getSettings,
   listRows,
+  parseAnalysis,
   saveSettings,
   setCaption,
   setOverride,
@@ -193,6 +196,23 @@ const server = Bun.serve({
           return fail(e)
         }
       },
+    },
+
+    "/api/images/:id/crop-suggestions": (req) => {
+      const row = getRow(Number(req.params.id))
+      if (!row) return fail("Not found", 404)
+      const s = getSettings(row.dataset)
+      return json(
+        suggestCrops(
+          parseAnalysis(row),
+          cropFromJson(row.crop),
+          row.main_face,
+          {
+            minShortSide: s.minShortSide,
+            otherPersonMinFace: s.otherPersonMinFace,
+          },
+        ),
+      )
     },
 
     "/api/images/:id/review": {

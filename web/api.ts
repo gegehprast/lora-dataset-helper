@@ -1,3 +1,4 @@
+import type { CropSuggestion } from "../src/crop-suggest"
 import type {
   Crop,
   DatasetSummary,
@@ -70,6 +71,8 @@ export const api = {
       method: "PUT",
       body: { crop },
     }),
+  cropSuggestions: (id: number) =>
+    call<CropSuggestion[]>(`/api/images/${id}/crop-suggestions`),
   reviewImage: (id: number) =>
     call<DatasetData>(`/api/images/${id}/review`, { method: "POST" }),
 }

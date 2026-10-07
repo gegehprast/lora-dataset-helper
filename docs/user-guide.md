@@ -124,6 +124,13 @@ Crop an image to rescue it or to add variety: cut out another person or a waterm
 3. The toolbar shows the size of the result in pixels, and warns when it's below *Min short side*.
 4. **Save crop** (or Enter). **Cancel** (or Esc) leaves it unchanged. **Remove crop** goes back to the whole image.
 
+**Suggested crops** appear as buttons above the image. They're computed on your computer from the detected faces, and a button only moves the box; nothing changes until you save.
+- **Remove other people:** the largest frame that keeps the character and leaves out everyone else, treating each other person as their face plus their body below it. Images rejected as *Multiple people* also get a **✂ Crop out others** shortcut in the detail view, which opens the editor with this suggestion.
+- **Close-up:** head and shoulders, 4:5, for images that aren't close-ups already.
+- **Half body:** 3:4, for full-body shots.
+
+A suggestion is only offered when the result still meets *Min short side*. *Remove other people* needs the other person's face to be detected and separate from the character's. It can't help when the AI review saw someone whose face wasn't detected (from behind, at the edge), or when the faces overlap (cheek-to-cheek shots).
+
 Crops are **non-destructive**: the input file is never changed, and you can edit or remove a crop any time. After a crop is saved:
 - The image is **analyzed again, on your computer**, using only the cropped region (face, sharpness, resolution, framing, duplicates…) and the selection updates. This takes well under a second, or up to about 20 seconds when the analysis models first have to load.
 - Its **AI review is discarded**, because it described the old framing. The next **Review with Venice** reviews it again, or click **Review this image**. Only the cropped region is sent.

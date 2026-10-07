@@ -890,6 +890,16 @@ button.link.warn-text {
 .crop-toolbar .spacer {
   flex: 1;
 }
+.crop-suggestions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
 .crop-area {
   flex: 1;
   min-height: 0;

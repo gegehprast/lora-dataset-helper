@@ -13,6 +13,7 @@ How the app is built and how to change it. For using the app, see the [User Guid
 - [Jobs](#jobs)
 - [HTTP API](#http-api)
 - [Frontend](#frontend)
+- [Tests](#tests)
 - [Common changes](#common-changes)
 - [Rules and gotchas](#rules-and-gotchas)
 - [Known gaps](#known-gaps)
@@ -76,6 +77,7 @@ bun run setup:worker     # Python 3.12 venv in worker/.venv
 cp .env.example .env     # VENICE_API_KEY=...
 bun run dev              # bun --hot src/server.ts, with HMR for the UI
 bun run typecheck        # tsc --noEmit
+bun test                 # see Tests
 ```
 
 | Env var | Default | Purpose |
@@ -289,6 +291,36 @@ React 19, bundled by Bun's HTML imports, so there's no Vite or separate build st
 - `styles.css`: plain CSS with light and dark tokens on `:root`.
 - Types come straight from `src/types.ts`; keep that file free of server-only imports.
 
+## Tests
+
+`bun test` runs the suite in `test/` (about 2 seconds). It needs no GPU, no Python venv, no API key and no network.
+
+`test/setup.ts` is preloaded through `bunfig.toml` and makes the suite safe to run anywhere:
+- `LORA_DATA_DIR` points at a new temp folder, so the database, thumbnails, inputs and exports never touch `data/`. It's deleted on exit.
+- `VENICE_API_KEY` is replaced with a dummy, and `VENICE_BASE_URL` with `http://venice.test`.
+- `fetch` is replaced with a function that **throws on every call**. A test that talks to Venice must stub it with `mockFetch()` from `test/helpers.ts`, so a forgotten stub fails the test instead of reaching the real API.
+
+| File | Covers |
+|---|---|
+| `select.test.ts` | identity (automatic, references, group photos, background faces), every hard check, AI hard and soft issues, duplicates (hash, CLIP, pinned), overrides, target and reserve, framing quotas and fallback, the variety slider |
+| `ai-stages.test.ts` | review and caption stages with a mocked Venice: what gets sent, caching per model, Local only and private-only blocking with zero requests sent, early abort, partial failures, overwrite rules |
+| `venice.test.ts` | model list parsing and caching, `checkModel` (fail-closed), request shape (1024 px JPEG, `venice_parameters`, JSON mode only when supported), JSON extraction, retries |
+| `files.test.ts` | scan (sub-folders, change detection, deletes, unreadable files) and export (folders, captions, name flattening, report, replacing old exports, input untouched) |
+| `settings.test.ts` | defaults, storing only non-default values, unknown keys |
+| `caption-prompt.test.ts` | caption prompt variants and `clean()` |
+| `jobs.test.ts` | job lifecycle, one job per dataset, errors, cancellation, `pool` concurrency |
+| `worker.test.ts` | the worker protocol, using a fake Python script: ordering, errors, crash and restart, missing interpreter |
+
+Helpers in `test/helpers.ts`:
+- `seedImage()` inserts an analyzed row directly, with synthetic metrics and embeddings.
+- `randomVec()` and `near()` build embeddings: random vectors are nearly orthogonal, which makes "different person" and "same person" easy to set up.
+- `newDataset()` gives each test its own dataset name.
+- `mockFetch()`, `modelsPayload()` and `chatReply()` fake the Venice API.
+
+Tests use generated images only. Never use `images-for-testing/` in tests.
+
+The real worker (`worker/main.py` with its models) isn't covered by the suite. To check it, run **Scan & analyze** on a local dataset.
+
 ## Common changes
 
 **New setting**: add it to `Settings` and `DEFAULT_SETTINGS` in `src/types.ts`, use it in the pipeline, and add a control in `SettingsPanel.tsx`. Stored settings are merged over the defaults, so existing datasets pick up the default automatically.
@@ -314,7 +346,7 @@ React 19, bundled by Bun's HTML imports, so there's no Vite or separate build st
 ## Known gaps
 
 - The Venice review and caption prompts have been checked against the live API only with a synthetic illustration (private models: gemma-4-31b-it, gemma-4-uncensored, mistral-small-3.2, qwen3-vl-235b, qwen-3-8-27b), not with real photo datasets. Expect to tune the prompts after real runs.
-- No automated tests. `select.ts` is the best first candidate: it can be tested by seeding an in-memory DB with synthetic analyses and embeddings.
+- The real Python worker and the HTTP routes in `server.ts` have no automated tests.
 - No schema migrations.
 - Job state isn't saved across restarts.
 - InsightFace `buffalo_l` weights are licensed for non-commercial research use only.

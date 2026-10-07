@@ -40,7 +40,7 @@ export function buildPrompt(s: Settings): string {
 - One paragraph of plain natural language, 40-90 words. No lists, quotes or preamble.${extra}`;
 }
 
-function clean(text: string, s: Settings): string {
+export function clean(text: string, s: Settings): string {
   let c = text
     .replace(/^\s*(caption|tags)\s*:\s*/i, "")
     .replace(/^["'`]+|["'`]+$/g, "")

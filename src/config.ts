@@ -2,7 +2,8 @@ import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const ROOT = resolve(import.meta.dir, "..");
-export const DATA_DIR = join(ROOT, "data");
+/** Overridable so tests run against a throwaway folder. */
+export const DATA_DIR = process.env.LORA_DATA_DIR ?? join(ROOT, "data");
 
 export const paths = {
   input: join(DATA_DIR, "input"),

@@ -9,7 +9,7 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
  * Speaks newline-delimited JSON over the child's stdin/stdout. Started lazily,
  * restarted on the next call if it dies.
  */
-class PythonWorker {
+export class PythonWorker {
   private proc: Subprocess<"pipe", "pipe", "inherit"> | null = null;
   private ready: Promise<void> | null = null;
   private pending = new Map<number, Pending>();
@@ -17,13 +17,18 @@ class PythonWorker {
   /** Requests are processed one at a time by the worker; queue them here so a timeout means "this request". */
   private chain: Promise<unknown> = Promise.resolve();
 
+  constructor(
+    private python = paths.workerPython,
+    private script = paths.workerScript,
+  ) {}
+
   private start(): Promise<void> {
     if (this.ready) return this.ready;
-    if (!existsSync(paths.workerPython)) {
+    if (!existsSync(this.python)) {
       return Promise.reject(new Error("Python worker is not set up. Run: bun run setup:worker"));
     }
 
-    const proc = Bun.spawn([paths.workerPython, paths.workerScript], {
+    const proc = Bun.spawn([this.python, this.script], {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "inherit",

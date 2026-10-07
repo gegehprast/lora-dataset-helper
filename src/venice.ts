@@ -4,6 +4,11 @@ import type { VeniceModel } from "./types";
 
 let modelCache: { at: number; models: VeniceModel[] } | null = null;
 
+/** For tests. */
+export function clearModelCache() {
+  modelCache = null;
+}
+
 /** Vision-capable text models, cached for 10 minutes. */
 export async function listVisionModels(): Promise<VeniceModel[]> {
   if (modelCache && Date.now() - modelCache.at < 10 * 60_000) return modelCache.models;

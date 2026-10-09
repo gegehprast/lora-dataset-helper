@@ -20,6 +20,7 @@ You need:
 
 - [Bun](https://bun.com) 1.3 or newer
 - Python 3.12 (`python3.12` on your `PATH`; set `PYTHON=/path/to/python` to use another 3.10–3.12)
+- `jpegtran` (part of libjpeg-turbo; on Arch/CachyOS it comes with the `libjpeg-turbo` package, on Debian/Ubuntu with `libjpeg-turbo-progs`) for lossless JPEG export. Without it, JPEGs are exported as PNG.
 - An NVIDIA GPU is recommended. Without one, analysis runs on the CPU and is several times slower.
 - A [Venice AI](https://venice.ai) API key for the AI review and captions
 
@@ -114,6 +115,14 @@ Click a thumbnail to open it full size. Use **←** / **→** to move through th
 - The caption editor: **Save** keeps your edit, **Generate / Regenerate** asks the AI for a new one
 - The AI review, with **Review this image** / **Review again** to review just this image now
 - The local measurements
+
+### Flipping
+
+**⇋ Flip H** mirrors the image left–right and **⇵ Flip V** turns it upside down. Like crops, flips are non-destructive and can be undone at any time. A flipped image shows a **flip** badge in the grid.
+- The image is analyzed again on your computer, and an existing crop is mirrored so it keeps covering the same part of the picture.
+- **Flip H keeps the AI review** (framing, quality, outfit and problems don't change), but marks the caption outdated, since "left hand" becomes "right hand".
+- **Flip V discards the AI review**, because the picture really changes.
+- The export, the thumbnail and the copy sent to Venice are all flipped.
 
 ### Cropping
 
@@ -240,12 +249,28 @@ data/output/<dataset>/
   report.json     settings used, and per image: status, score, reasons, framing, caption
 ```
 
-- Images are **copied**; your input folder is never changed.
+- Your input folder is never changed. The exported copies are **cleaned and losslessly transformed** (see below).
 - Each export replaces the previous `selected/`, `reserve/` and `rejected/` folders for that dataset.
 - Images from sub-folders are renamed `sub__name.jpg` so names don't collide.
 - The `image.txt` next to `image.jpg` convention works with kohya-ss, ai-toolkit, OneTrainer and similar trainers.
 - Images are exported at their original size; your trainer handles resizing and bucketing.
-- **Cropped images** are cut straight from the original file's pixels, with no resizing, and saved in the same format: JPEG and WebP at quality 95, PNG lossless. Formats that can't be written (e.g. BMP) are saved as PNG. `report.json` records each crop. Uncropped images are copied byte for byte.
+- Captions are named after the image without its extension, so `a.jpg` and `a.png` in one folder become `a.jpg` + `a_2.png`, each with its own caption.
+
+### Clean, lossless export
+
+Every exported image:
+- has **no metadata**: camera, date, GPS location, EXIF and XMP are removed. Only the colour profile (ICC) is kept, so colours look the same.
+- is stored **the right way up**: the camera's EXIF rotation, your flip and your crop are applied to the pixels, so every program shows it correctly, even ones that ignore EXIF.
+- has **no lossy recompression**:
+  - **JPEG:** `jpegtran` (libjpeg-turbo) rotates, flips and crops the compressed data directly, so the image quality is unchanged.
+    - Lossless JPEG rotation works in 8 or 16 px blocks. When a photo's width or height isn't a multiple of that (common for phone photos, e.g. 4080×3060), a perfect rotation is impossible. *Settings → Export* decides: **trim** the partial edge strip (under 16 px, the default) and keep a JPEG, or save a **PNG** (exact, but several times larger).
+    - Crops start on that block grid too. The top-left corner moves inward by less than one block, so the crop can get very slightly smaller but never includes anything outside the box you drew.
+    - If `jpegtran` isn't installed, JPEGs are saved as PNG.
+  - **PNG:** written as PNG; **WebP:** written as lossless WebP. Other formats (e.g. BMP) become PNG.
+
+`report.json` records, per image, its crop and flip, how it was written (`method`) and any note (e.g. trimmed). The export message summarizes how many were trimmed or saved as PNG.
+
+On a 375-photo phone dataset this took about 17 seconds. 77 rotated photos were trimmed (by at most 12 px), none became PNG, and the total size went from 623 to 608 MB (the removed metadata).
 
 ## Privacy
 

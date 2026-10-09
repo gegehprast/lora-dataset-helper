@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import sharp, { type Sharp } from "sharp"
 import { paths } from "../src/config"
-import { cropKey, cropPixels, loadImage, parseCrop } from "../src/crop"
+import { cropPixels, editKey, loadImage, parseCrop } from "../src/crop"
 import {
   db,
   getRow,
@@ -13,7 +13,7 @@ import {
   thumbId,
   toRecord,
 } from "../src/db"
-import { setImageCrop } from "../src/pipeline/cropping"
+import { setImageCrop, setImageFlip } from "../src/pipeline/cropping"
 import { exportDataset } from "../src/pipeline/export"
 import { scanDataset, thumbPath } from "../src/pipeline/scan"
 import { reviewSingleImage } from "../src/pipeline/tag"
@@ -92,10 +92,12 @@ test("cropPixels stays inside the image", () => {
   })
 })
 
-test("cropKey is stable and differs per crop", () => {
+test("editKey is stable and differs per crop and flip", () => {
   const a = { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }
-  expect(cropKey(a)).toBe(cropKey({ ...a }))
-  expect(cropKey(a)).not.toBe(cropKey({ ...a, x: 0.11 }))
+  expect(editKey(a)).toBe(editKey({ ...a }))
+  expect(editKey(a)).not.toBe(editKey({ ...a, x: 0.11 }))
+  expect(editKey(a, "h")).not.toBe(editKey(a))
+  expect(editKey(null, "h")).not.toBe(editKey(null, "v"))
 })
 
 describe("loadImage", () => {
@@ -135,9 +137,11 @@ async function cropDataset() {
   await scanDataset(ds, fakeCtx().ctx)
   const id = listRows(ds)[0].id
   const seen: unknown[] = []
+  const flipsSeen: unknown[] = []
   const client = {
     call: async <T>(_op: string, args: Record<string, unknown> = {}) => {
       seen.push(args.crops)
+      flipsSeen.push(args.flips)
       return [
         {
           width: 200,
@@ -154,7 +158,7 @@ async function cropDataset() {
       ] as T
     },
   }
-  return { ds, id, client, seen }
+  return { ds, id, client, seen, flipsSeen }
 }
 
 describe("setImageCrop", () => {
@@ -228,13 +232,86 @@ describe("setImageCrop", () => {
   })
 })
 
+describe("flip", () => {
+  test("horizontal flip keeps the review, mirrors the crop and re-analyzes", async () => {
+    const { id, client, flipsSeen } = await cropDataset()
+    await setImageCrop(id, { x: 0, y: 0, w: 0.25, h: 0.5 }, { client })
+    db.query("UPDATE images SET tags = ?, tags_model = 'm' WHERE id = ?").run(
+      JSON.stringify(tags()),
+      id,
+    )
+    setCaption(id, "jdoe raising her left hand", "m")
+
+    expect(await setImageFlip(id, "h", { client })).toEqual({
+      changed: true,
+      warning: null,
+    })
+    const r = toRecord(getRow(id)!)
+    expect(r.flip).toBe("h")
+    expect(r.crop).toEqual({ x: 0.75, y: 0, w: 0.25, h: 0.5 })
+    expect(r.tags).not.toBeNull()
+    expect(r.captionStale).toBe(true)
+    expect(flipsSeen.at(-1)).toEqual(["h"])
+  })
+
+  test("vertical flip drops the review; removing the flip restores the crop", async () => {
+    const { id, client } = await cropDataset()
+    await setImageCrop(id, { x: 0, y: 0, w: 0.5, h: 0.25 }, { client })
+    db.query("UPDATE images SET tags = ?, tags_model = 'm' WHERE id = ?").run(
+      JSON.stringify(tags()),
+      id,
+    )
+    await setImageFlip(id, "v", { client })
+    expect(getRow(id)?.tags).toBeNull()
+    expect(toRecord(getRow(id)!).crop).toEqual({
+      x: 0,
+      y: 0.75,
+      w: 0.5,
+      h: 0.25,
+    })
+    await setImageFlip(id, null, { client })
+    expect(toRecord(getRow(id)!).crop).toEqual({ x: 0, y: 0, w: 0.5, h: 0.25 })
+    expect(getRow(id)?.flip).toBeNull()
+  })
+
+  test("invalid flips are rejected; an unchanged flip does nothing", async () => {
+    const { id, client } = await cropDataset()
+    await expect(setImageFlip(id, "x", { client })).rejects.toThrow(
+      "Invalid flip",
+    )
+    expect((await setImageFlip(id, null, { client })).changed).toBe(false)
+  })
+
+  test("flipped images look flipped everywhere: thumbnail id, Venice upload", async () => {
+    const { id, client } = await cropDataset()
+    const before = toRecord(getRow(id)!).thumb
+    await setImageFlip(id, "v", { client })
+    const row = getRow(id)!
+    expect(toRecord(row).thumb).not.toBe(before)
+    expect(existsSync(thumbPath(thumbId(row)))).toBe(true)
+    // Displayed upright: top red, bottom blue. Flipped vertically: top is blue.
+    const file = join(paths.input, row.dataset, row.rel_path)
+    const url = await imageDataUrl(
+      file,
+      { x: 0, y: 0, w: 1, h: 0.5 },
+      1024,
+      "v",
+    )
+    const top = await centerColor(
+      sharp(Buffer.from(url.split(",")[1], "base64")),
+    )
+    expect(top.b).toBeGreaterThan(200)
+  })
+})
+
 describe("export with crops", () => {
-  test("cropped images are cut from the original pixels; others are copied unchanged", async () => {
+  test("crops are cut from the original pixels; everything is written without metadata", async () => {
     const { ds, id, client } = await cropDataset()
     const dir = join(paths.input, ds)
     await sharp({
       create: { width: 64, height: 48, channels: 3, background: "#777" },
     })
+      .withMetadata({ exif: { IFD0: { Model: "Secret Phone" } } })
       .png()
       .toFile(join(dir, "b.png"))
     await scanDataset(ds, fakeCtx().ctx)
@@ -243,12 +320,22 @@ describe("export with crops", () => {
 
     await exportDataset(ds, fakeCtx().ctx)
     const out = join(paths.output, ds, "selected")
+    // Lossless JPEG crop of the sideways photo: the bottom (blue) half, upright, possibly
+    // shrunk by less than a 16 px block to stay on the JPEG grid.
+    const meta = await sharp(join(out, "a.jpg")).metadata()
+    expect(meta.orientation).toBeUndefined()
     const cropped = await centerColor(sharp(join(out, "a.jpg")))
-    expect([cropped.w, cropped.h]).toEqual([200, 200])
+    expect(cropped.w).toBeGreaterThan(200 - 16)
+    expect(cropped.w).toBeLessThanOrEqual(200)
+    expect(cropped.h).toBeGreaterThan(200 - 16)
+    expect(cropped.h).toBeLessThanOrEqual(200)
     expect(cropped.b).toBeGreaterThan(200)
-    expect(
-      readFileSync(join(out, "b.png")).equals(readFileSync(join(dir, "b.png"))),
-    ).toBe(true)
+    // PNG: same pixels, metadata gone.
+    const png = readFileSync(join(out, "b.png"))
+    expect(png.includes(Buffer.from("Secret Phone"))).toBe(false)
+    const a = await sharp(png).raw().toBuffer()
+    const b = await sharp(join(dir, "b.png")).raw().toBuffer()
+    expect(a.equals(b)).toBe(true)
   })
 })
 

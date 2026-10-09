@@ -1,5 +1,5 @@
 import { join } from "node:path"
-import { cropFromJson } from "../crop"
+import { cropFromJson, flipFromDb } from "../crop"
 import { db, getRow, getSettings, setCaption } from "../db"
 import { type JobContext, pool } from "../jobs"
 import type { Settings } from "../types"
@@ -73,6 +73,7 @@ export async function captionImage(id: number): Promise<string> {
     prompt: buildPrompt(s),
     imagePath: join(datasetDir(row.dataset), row.rel_path),
     crop: cropFromJson(row.crop),
+    flip: flipFromDb(row.flip),
     maxTokens: 400,
     requirePrivate: s.privateModelsOnly,
   })

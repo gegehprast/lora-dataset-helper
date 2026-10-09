@@ -2,6 +2,7 @@ import type { CropSuggestion } from "../src/crop-suggest"
 import type {
   Crop,
   DatasetSummary,
+  Flip,
   ImageRecord,
   JobKind,
   JobState,
@@ -70,6 +71,11 @@ export const api = {
     call<DatasetData & { warning: string | null }>(`/api/images/${id}/crop`, {
       method: "PUT",
       body: { crop },
+    }),
+  setFlip: (id: number, flip: Flip | null) =>
+    call<DatasetData & { warning: string | null }>(`/api/images/${id}/flip`, {
+      method: "PUT",
+      body: { flip },
     }),
   cropSuggestions: (id: number) =>
     call<CropSuggestion[]>(`/api/images/${id}/crop-suggestions`),

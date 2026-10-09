@@ -1,11 +1,11 @@
-import { copyFileSync, mkdirSync, rmSync } from "node:fs"
+import { mkdirSync, rmSync } from "node:fs"
 import { basename, extname, join } from "node:path"
 import { paths } from "../config"
-import { loadImage } from "../crop"
 import { getSettings, listRows, toRecord } from "../db"
 import type { JobContext } from "../jobs"
-import { type Crop, type ImageStatus, REASON_LABELS } from "../types"
+import { type ImageStatus, REASON_LABELS } from "../types"
 import { datasetDir } from "./scan"
+import { type WriteResult, writeCleanImage } from "./write-image"
 
 type ExportedStatus = Exclude<ImageStatus, "pending">
 
@@ -16,28 +16,9 @@ const FOLDERS: Record<ExportedStatus, string> = {
 }
 
 /**
- * Uncropped images are copied byte for byte. Cropped ones are cut from the original pixels
- * (no resizing) and re-encoded in the source format: JPEG/WebP at quality 95, PNG lossless.
- */
-async function writeImage(source: string, dest: string, crop: Crop | null) {
-  if (!crop) {
-    copyFileSync(source, dest)
-    return
-  }
-  const img = await loadImage(source, crop)
-  const ext = extname(dest).toLowerCase()
-  if (ext === ".png") await img.png().toFile(dest)
-  else if (ext === ".webp") await img.webp({ quality: 95 }).toFile(dest)
-  else if (ext === ".jpg" || ext === ".jpeg")
-    await img.jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toFile(dest)
-  else await img.png().toFile(dest)
-}
-
-const ENCODABLE = new Set([".jpg", ".jpeg", ".png", ".webp"])
-
-/**
- * Copy images into data/output/<dataset>/{selected,reserve,rejected}. Selected images get a
- * same-named .txt caption next to them (kohya / ai-toolkit / OneTrainer convention).
+ * Write images into data/output/<dataset>/{selected,reserve,rejected}, without metadata and
+ * with EXIF rotation, flip and crop applied losslessly (see write-image.ts). Selected images
+ * get a same-named .txt caption (kohya / ai-toolkit / OneTrainer convention).
  * Input files are never modified. Previous export folders for this dataset are replaced.
  */
 export async function exportDataset(dataset: string, ctx: JobContext) {
@@ -54,7 +35,9 @@ export async function exportDataset(dataset: string, ctx: JobContext) {
     mkdirSync(join(out, folder), { recursive: true })
   }
 
-  ctx.stage("Copying files", records.length)
+  const settings = getSettings(dataset)
+  const methods: Record<string, number> = {}
+  ctx.stage("Writing files", records.length)
   const used = new Set<string>()
   const report = []
   let missingCaptions = 0
@@ -62,22 +45,29 @@ export async function exportDataset(dataset: string, ctx: JobContext) {
   for (const r of records) {
     ctx.check()
     const folder = FOLDERS[r.status as ExportedStatus]
-    // Flatten sub-folders into the file name and avoid collisions.
-    let name = r.relPath.replaceAll("/", "__")
-    // Cropped images are re-encoded; formats sharp can't write keep their pixels as PNG.
-    if (r.crop && !ENCODABLE.has(extname(name).toLowerCase()))
-      name = `${name.slice(0, -extname(name).length)}.png`
-    const stem = basename(name, extname(name))
-    for (let n = 2; used.has(`${folder}/${name.toLowerCase()}`); n++)
-      name = `${stem}_${n}${extname(name)}`
-    used.add(`${folder}/${name.toLowerCase()}`)
+    // Flatten sub-folders into the file name; stems must be unique per folder because
+    // the caption is <stem>.txt whatever the image's extension.
+    const flat = r.relPath.replaceAll("/", "__")
+    const base = basename(flat, extname(flat))
+    let stem = base
+    for (let n = 2; used.has(`${folder}/${stem.toLowerCase()}`); n++)
+      stem = `${base}_${n}`
+    used.add(`${folder}/${stem.toLowerCase()}`)
 
-    await writeImage(join(src, r.relPath), join(out, folder, name), r.crop)
+    const written: WriteResult = await writeCleanImage(
+      join(src, r.relPath),
+      join(out, folder),
+      stem,
+      { crop: r.crop, flip: r.flip },
+      settings.exportJpegImperfect,
+    )
+    methods[written.method] = (methods[written.method] ?? 0) + 1
+    const name = written.name
     if (r.status === "selected") {
       if (r.captionStale && r.caption?.trim()) staleCaptions++
       if (r.caption?.trim())
         await Bun.write(
-          join(out, folder, `${basename(name, extname(name))}.txt`),
+          join(out, folder, `${stem}.txt`),
           `${r.caption.trim()}\n`,
         )
       else missingCaptions++
@@ -90,12 +80,15 @@ export async function exportDataset(dataset: string, ctx: JobContext) {
       reasons: r.reasons.map((x) => REASON_LABELS[x] ?? x),
       framing: r.framing,
       crop: r.crop ?? undefined,
+      flip: r.flip ?? undefined,
+      method: written.method,
+      note: written.note,
       caption: r.status === "selected" ? r.caption : undefined,
     })
     ctx.tick()
   }
 
-  const s = getSettings(dataset)
+  const s = settings
   await Bun.write(
     join(out, "report.json"),
     JSON.stringify(
@@ -113,9 +106,12 @@ export async function exportDataset(dataset: string, ctx: JobContext) {
 
   const n = (st: ImageStatus) => records.filter((r) => r.status === st).length
   const notes = [
+    methods["jpeg-lossless-trimmed"] &&
+      `${methods["jpeg-lossless-trimmed"]} JPEGs trimmed by < 16 px to rotate losslessly`,
+    methods.png && `${methods.png} saved as PNG`,
     missingCaptions && `${missingCaptions} selected images have no caption`,
     staleCaptions &&
-      `${staleCaptions} captions were written before the image was cropped`,
+      `${staleCaptions} captions were written before the image was cropped or flipped`,
   ].filter(Boolean)
   return `Exported ${n("selected")} selected, ${n("reserve")} reserve, ${n("rejected")} rejected to data/output/${dataset}/${
     notes.length ? ` (${notes.join("; ")})` : ""

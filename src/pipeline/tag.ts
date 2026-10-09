@@ -1,5 +1,5 @@
 import { join } from "node:path"
-import { cropFromJson } from "../crop"
+import { cropFromJson, flipFromDb } from "../crop"
 import { db, getRow, getSettings } from "../db"
 import { type JobContext, pool } from "../jobs"
 import {
@@ -196,7 +196,12 @@ export async function groupOutfits(
   return { requested, note }
 }
 
-type Candidate = { id: number; rel_path: string; crop: string | null }
+type Candidate = {
+  id: number
+  rel_path: string
+  crop: string | null
+  flip: string | null
+}
 
 /** Review one image (the cropped region, if cropped) and store the result. */
 async function reviewImage(row: Candidate, dir: string, s: Settings) {
@@ -206,6 +211,7 @@ async function reviewImage(row: Candidate, dir: string, s: Settings) {
     prompt: PROMPT,
     imagePath: join(dir, row.rel_path),
     crop: cropFromJson(row.crop),
+    flip: flipFromDb(row.flip),
     schema: TAG_SCHEMA,
     requirePrivate: s.privateModelsOnly,
   })
@@ -239,7 +245,7 @@ export async function reviewSingleImage(id: number): Promise<void> {
 function needingReview(dataset: string, model: string, where: string) {
   return db
     .query<Candidate, [string, string, number]>(
-      `SELECT id, rel_path, crop FROM images WHERE dataset = ? AND (${where})
+      `SELECT id, rel_path, crop, flip FROM images WHERE dataset = ? AND (${where})
          AND (tags IS NULL OR tags_model IS NOT ?
               OR COALESCE(json_extract(tags, '$.v'), 0) != ?)
        ORDER BY override = 'include' DESC, score DESC`,

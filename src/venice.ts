@@ -1,6 +1,6 @@
 import { VENICE_BASE_URL, veniceKey } from "./config"
 import { loadImage } from "./crop"
-import type { Crop, VeniceModel } from "./types"
+import type { Crop, Flip, VeniceModel } from "./types"
 
 let modelCache: { at: number; models: VeniceModel[] } | null = null
 
@@ -91,8 +91,9 @@ export async function imageDataUrl(
   path: string,
   crop: Crop | null = null,
   maxSide = 1024,
+  flip: Flip | null = null,
 ): Promise<string> {
-  const buf = await (await loadImage(path, crop))
+  const buf = await (await loadImage(path, crop, flip))
     .resize(maxSide, maxSide, { fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 88 })
     .toBuffer()
@@ -107,6 +108,8 @@ interface ChatOptions {
   imagePath?: string
   /** Crop applied before sending: only the cropped region leaves the machine. */
   crop?: Crop | null
+  /** Flip applied before the crop, as in the app. */
+  flip?: Flip | null
   schema?: { name: string; schema: object }
   maxTokens?: number
   /** Refuse to send the image unless Venice marks the model as private. */
@@ -132,7 +135,12 @@ async function chat(opts: ChatOptions): Promise<string> {
                 {
                   type: "image_url",
                   image_url: {
-                    url: await imageDataUrl(opts.imagePath, opts.crop),
+                    url: await imageDataUrl(
+                      opts.imagePath,
+                      opts.crop,
+                      1024,
+                      opts.flip,
+                    ),
                   },
                 },
               ]

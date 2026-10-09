@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { CropSuggestion } from "../../src/crop-suggest"
-import type { Crop } from "../../src/types"
+import type { Crop, Flip } from "../../src/types"
+
+/** CSS for showing an image flipped. Only the picture is mirrored; boxes drawn over it are
+ * in on-screen coordinates, which is what crops are stored in. */
+export const flipStyle = (flip: Flip | null | undefined) =>
+  flip
+    ? {
+        transform: `scale(${flip.includes("h") ? -1 : 1}, ${flip.includes("v") ? -1 : 1})`,
+      }
+    : undefined
 
 const MIN = 0.02
 
@@ -74,6 +83,7 @@ function fitAspect(c: Crop, na: number): Crop {
 
 interface Props {
   src: string
+  flip?: Flip | null
   /** The image's saved crop, if any. */
   initial: Crop | null
   /** Box to start with instead of `initial` (e.g. a suggestion). */
@@ -87,6 +97,7 @@ interface Props {
 
 export function CropEditor({
   src,
+  flip,
   initial,
   start,
   suggestions = [],
@@ -261,6 +272,7 @@ export function CropEditor({
             src={src}
             alt=""
             draggable={false}
+            style={flipStyle(flip)}
             onLoad={(e) =>
               setNatural({
                 w: e.currentTarget.naturalWidth,
@@ -301,10 +313,18 @@ export function CropEditor({
 }
 
 /** Read-only view of an image with its crop shown (outside area dimmed). */
-export function CropPreview({ src, crop }: { src: string; crop: Crop }) {
+export function CropPreview({
+  src,
+  crop,
+  flip,
+}: {
+  src: string
+  crop: Crop
+  flip?: Flip | null
+}) {
   return (
     <div className="crop-stage readonly">
-      <img src={src} alt="" draggable={false} />
+      <img src={src} alt="" draggable={false} style={flipStyle(flip)} />
       <div
         className="crop-box"
         style={{

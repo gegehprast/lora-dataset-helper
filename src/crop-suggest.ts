@@ -78,7 +78,6 @@ export function suggestCrops(
   const mainIdx = mainFace ?? 0
   const main = faces[mainIdx]
   if (!main) return []
-  const fw = main[2] - main[0]
   const fh = main[3] - main[1]
 
   const out: CropSuggestion[] = []

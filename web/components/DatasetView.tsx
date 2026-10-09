@@ -353,6 +353,11 @@ export function DatasetView({ name }: { name: string }) {
             if (d.warning) setError(d.warning)
           }}
           onReview={async (id) => apply(await api.reviewImage(id))}
+          onFlip={async (id, flip) => {
+            const d = await api.setFlip(id, flip)
+            apply(d)
+            if (d.warning) setError(d.warning)
+          }}
         />
       )}
     </div>

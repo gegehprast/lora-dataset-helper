@@ -17,7 +17,7 @@ import {
 import { cancelJob, getJob, type JobContext, startJob } from "./jobs"
 import { analyzeDataset } from "./pipeline/analyze"
 import { captionDataset, captionImage } from "./pipeline/caption"
-import { setImageCrop } from "./pipeline/cropping"
+import { setImageCrop, setImageFlip } from "./pipeline/cropping"
 import { exportDataset } from "./pipeline/export"
 import {
   datasetDir,
@@ -191,6 +191,22 @@ const server = Bun.serve({
         try {
           const body = await readBody<{ crop?: unknown }>(req)
           const { warning } = await setImageCrop(row.id, body.crop ?? null)
+          return json({ ...datasetPayload(row.dataset), warning })
+        } catch (e) {
+          return fail(e)
+        }
+      },
+    },
+
+    "/api/images/:id/flip": {
+      PUT: async (req) => {
+        const row = getRow(Number(req.params.id))
+        if (!row) return fail("Not found", 404)
+        if (getJob(row.dataset)?.running)
+          return fail("Wait for the running job to finish before flipping", 409)
+        try {
+          const body = await readBody<{ flip?: unknown }>(req)
+          const { warning } = await setImageFlip(row.id, body.flip ?? null)
           return json({ ...datasetPayload(row.dataset), warning })
         } catch (e) {
           return fail(e)

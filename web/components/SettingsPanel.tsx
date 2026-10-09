@@ -360,6 +360,35 @@ export function SettingsPanel({ settings, onChange }: Props) {
           />
         </label>
       </fieldset>
+
+      <fieldset>
+        <legend>Export</legend>
+        <p className="muted small-text">
+          Exported images have no metadata (camera, GPS, EXIF) and have their
+          rotation, flip and crop applied, without lossy recompression.
+        </p>
+        <label className="field">
+          <span>JPEGs that can't be rotated perfectly</span>
+          <select
+            value={draft.exportJpegImperfect}
+            onChange={(e) =>
+              set(
+                "exportJpegImperfect",
+                e.target.value as Settings["exportJpegImperfect"],
+                0,
+              )
+            }
+          >
+            <option value="trim">Trim the edge (&lt; 16 px), keep JPEG</option>
+            <option value="png">Save as PNG (exact, larger file)</option>
+          </select>
+          <small>
+            Lossless JPEG rotation works in 8/16 px blocks. When the size isn't
+            a multiple of the block size, the partial edge must be dropped or
+            the image saved as PNG.
+          </small>
+        </label>
+      </fieldset>
     </aside>
   )
 }

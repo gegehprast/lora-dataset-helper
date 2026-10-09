@@ -148,6 +148,7 @@ SQLite at `data/.cache/app.sqlite` (WAL mode). Created on startup in `src/db.ts`
 | `caption`, `caption_model` | caption / UI | |
 | `outfit_group` | tag (`groupOutfits`) | Label shared by images in the same outfit. Added by `addColumn()` on older databases. |
 | `crop` | crop editor (`setImageCrop`) | JSON `{x, y, w, h}`, normalized 0–1 relative to the **EXIF-rotated** image; NULL = none. Cleared when the file changes. |
+| `flip` | `setImageFlip` | `"h"`, `"v"`, `"hv"` or NULL; applied after EXIF rotation, before the crop. Cleared when the file changes. |
 | `caption_stale` | `setImageCrop` / `setCaption` | 1 when the crop changed after the caption was written; `setCaption` clears it. |
 
 `toRecord()` turns a row into the `ImageRecord` the UI uses. Embeddings never leave the server.
@@ -220,7 +221,31 @@ A suggestion is dropped when its short side is below `minShortSide`. On the 333-
 
 `reviewSingleImage(id)` (`POST /api/images/:id/review`) reviews one image now, subject to the same Local only and private-only checks as the batch review. The image's `outfit_group` is reset, so the next grouping run includes it.
 
-Export cuts crops from the original pixels and re-encodes in the source format (JPEG/WebP quality 95 with 4:4:4 chroma, PNG lossless; other formats as PNG). Uncropped images are still copied byte for byte.
+### Flip
+
+`flip` (column, `"h" | "v" | "hv"` or NULL) is applied **after** EXIF rotation and **before** the crop, the same order everywhere:
+- `loadImage(path, crop, flip)`: thumbnails, the Venice upload, PNG/WebP export;
+- the worker's `flips` argument (`ImageOps.mirror` / `ImageOps.flip` after `exif_transpose`);
+- the jpegtran transform in export.
+
+Crop coordinates therefore refer to the flipped view. `setImageFlip()` mirrors an existing crop (`mirrorCrop`) when an axis is toggled. A horizontal toggle keeps `tags`; a vertical one drops them. Both re-analyze and flag the caption. The UI flips only the `<img>` with a CSS `scale()`, so crop boxes stay in screen coordinates (`flipStyle()`).
+
+Note that sharp applies `.flip()`/`.flop()`/`.extract()` *before* `.rotate()` within a single pipeline, which is why `loadImage` goes through raw intermediates.
+
+### Export writer (`pipeline/write-image.ts`)
+
+`writeCleanImage()` writes every exported image without metadata, upright, and without lossy recompression:
+- **JPEG via `jpegtran`**:
+  1. Map the displayed crop back to the stored orientation (`rectToStored`, using the transform's 2×2 matrix).
+  2. Snap its top-left corner *inward* to the block grid (`jpegBlockSize` parses the SOF sampling factors; `snapCropInward`).
+  3. `jpegtran -copy icc -crop …` (stored orientation).
+  4. Apply EXIF orientation and flip as one D4 operation (`jpegtranTransform` composes the matrices): `-perfect` first, then `-trim` if the dataset's `exportJpegImperfect` is `"trim"`, otherwise fall back to PNG.
+
+  Every step can only shrink the image, so nothing outside the user's crop is ever included. `-copy icc` drops EXIF/XMP/GPS and keeps the colour profile.
+- **WebP** → lossless WebP of the decoded pixels; **PNG and others** → PNG (sharp strips metadata by default).
+- File names: the export de-duplicates *stems* (captions are `<stem>.txt`), and the extension comes from the writer (e.g. `.png` after a fallback).
+
+`write-image.test.ts` checks all 8 EXIF orientations × 4 flips × with/without crop against `loadImage`. It proves "no recompression" exactly: the inverse jpegtran transform of the export decodes **bit-identical** to the source. A direct pixel comparison differs by up to ±3 only because transposing operations swap the order of the decoder's IDCT passes.
 
 ## Selection algorithm
 
@@ -338,6 +363,7 @@ All JSON. `DatasetData = { name, settings, images: ImageRecord[], job }`.
 | POST | `/api/images/:id/reference` | | `DatasetData`; toggles the image in `referenceImageIds` |
 | PUT | `/api/images/:id/crop` | `{ crop: {x,y,w,h} \| null }` | `DatasetData & { warning }`; 409 while a job runs |
 | GET | `/api/images/:id/crop-suggestions` | | `CropSuggestion[]` |
+| PUT | `/api/images/:id/flip` | `{ flip: "h" \| "v" \| "hv" \| null }` | `DatasetData & { warning }`; 409 while a job runs |
 | POST | `/api/images/:id/review` | | `DatasetData`; reviews this image now |
 | GET | `/api/images/:id/file` | | the original image |
 | GET | `/thumbs/:thumb.webp` | | thumbnail (immutable cache); `thumb` is `<sha1>` or `<sha1>-<cropKey>` |
@@ -367,6 +393,7 @@ React 19, bundled by Bun's HTML imports, so there's no Vite or separate build st
 |---|---|
 | `select.test.ts` | identity (automatic, references, group photos, background faces), every hard check, AI hard and soft issues, duplicates (hash, CLIP, pinned), overrides, target and reserve, framing quotas and fallback, the variety slider |
 | `crop-suggest.test.ts` | suggestions: cutting others out (incl. a non-largest main face, tight two-shots, overlapping faces, small background faces), close-up/half framing and aspect, staying inside the image, the minimum size, already-cropped images |
+| `write-image.test.ts` | lossless export: all orientations × flips × crop, exact round trip, metadata removal, inward snapping, trim vs PNG, PNG/WebP |
 | `crop.test.ts` | crop validation and maths, crops on EXIF-rotated images (pixel colours checked), the cropped Venice upload, `setImageCrop` (re-analysis with a fake worker, invalidation, outdated caption, failure warning, removal, reset on file change), export of crops, single-image review |
 | `ai-stages.test.ts` | review and caption stages with a mocked Venice: what gets sent, caching per model, Local only and private-only blocking with zero requests sent, early abort, partial failures, overwrite rules |
 | `venice.test.ts` | model list parsing and caching, `checkModel` (fail-closed), request shape (1024 px JPEG, `venice_parameters`, JSON mode only when supported), JSON extraction, retries |

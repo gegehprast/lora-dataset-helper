@@ -9,6 +9,12 @@ export type Override = "include" | "exclude" | null
  * Crop rectangle, normalized 0–1 relative to the image as displayed (after EXIF rotation).
  * Stored per image; the input file is never changed.
  */
+/** Mirror applied after EXIF rotation: horizontal, vertical or both. */
+export type Flip = "h" | "v" | "hv"
+
+/** What to do when a JPEG can't be rotated perfectly losslessly (size not a multiple of 16). */
+export type JpegImperfect = "trim" | "png"
+
 export interface Crop {
   x: number
   y: number
@@ -77,6 +83,8 @@ export interface Settings {
   captionDescribeHair: boolean
   captionInstructions: string
   concurrency: number
+  /** Export: trim < 16 px of edge to keep a lossless JPEG, or write a (larger) PNG. */
+  exportJpegImperfect: JpegImperfect
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -110,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
   captionDescribeHair: true,
   captionInstructions: "",
   concurrency: 4,
+  exportJpegImperfect: "trim",
 }
 
 export const ISSUES = [
@@ -232,6 +241,7 @@ export interface ImageRecord {
   /** Thumbnail id (includes the crop, if any): /thumbs/<thumb>.webp */
   thumb: string
   crop: Crop | null
+  flip: Flip | null
   width: number | null
   height: number | null
   status: ImageStatus

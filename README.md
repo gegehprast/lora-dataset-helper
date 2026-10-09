@@ -6,7 +6,8 @@ A local web app that picks the best images for a **character LoRA** from a folde
 2. **AI review** (Venice AI vision model): framing, view, pose, expression, outfit, problems (cropped head, occlusion, watermark, other people, filters…) and a 1–10 quality rating. Only images that pass the local filters are sent.
 3. **Select**: rejects failures and near-duplicates, then picks a varied set (quality vs. variety slider, framing mix of close-up / half / full body). Pin or exclude any image by hand.
 4. **Caption** the selection with the trigger word: natural language (Krea 2, Flux, Qwen-Image) or booru tags.
-5. **Export** to `data/output/<dataset>/selected/` (image + `.txt` caption), plus `reserve/`, `rejected/` and a `report.json`.
+5. **Crop and flip** any image (non-destructive), with suggested crops from the detected faces.
+6. **Export** to `data/output/<dataset>/selected/` (image + `.txt` caption), plus `reserve/`, `rejected/` and a `report.json`. Exported images are stripped of metadata (incl. GPS) and stored upright, with rotation, flip and crop applied **losslessly** (`jpegtran` for JPEG).
 
 Input files are never modified.
 
@@ -17,7 +18,7 @@ Input files are never modified.
 
 ## Setup
 
-Requires [Bun](https://bun.com), Python 3.12, and ideally an NVIDIA GPU (CPU works, but slower).
+Requires [Bun](https://bun.com), Python 3.12, `jpegtran` (libjpeg-turbo, for lossless JPEG export), and ideally an NVIDIA GPU (CPU works, but slower).
 
 ```sh
 bun install

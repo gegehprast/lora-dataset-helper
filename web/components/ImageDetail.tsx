@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react"
 import type { CropSuggestion } from "../../src/crop-suggest"
-import type { Crop } from "../../src/types"
+import type { Crop, Flip } from "../../src/types"
 import { type ImageRecord, type Override, REASON_LABELS } from "../../src/types"
 import { api, imageUrl, thumbUrl } from "../api"
-import { CropEditor, CropPreview } from "./CropEditor"
+import { CropEditor, CropPreview, flipStyle } from "./CropEditor"
 
 interface Props {
   image: ImageRecord
@@ -20,6 +20,7 @@ interface Props {
   onCaptionRegenerated: () => void
   /** Save (or with null, remove) the crop. Rejects with a message on failure. */
   onCrop: (id: number, crop: Crop | null) => Promise<void>
+  onFlip: (id: number, flip: Flip | null) => Promise<void>
   onReview: (id: number) => Promise<void>
 }
 
@@ -79,6 +80,22 @@ export function ImageDetail(p: Props) {
     }
   }
 
+  const toggleFlip = async (axis: "h" | "v") => {
+    const cur = im.flip ?? ""
+    const h = axis === "h" ? !cur.includes("h") : cur.includes("h")
+    const v = axis === "v" ? !cur.includes("v") : cur.includes("v")
+    const next = (`${h ? "h" : ""}${v ? "v" : ""}` || null) as Flip | null
+    setCropSaving(true)
+    setError(null)
+    try {
+      await p.onFlip(im.id, next)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setCropSaving(false)
+    }
+  }
+
   const saveCrop = async (crop: Crop | null) => {
     setCropSaving(true)
     setError(null)
@@ -127,6 +144,7 @@ export function ImageDetail(p: Props) {
           {cropping ? (
             <CropEditor
               src={imageUrl(im.id)}
+              flip={im.flip}
               initial={im.crop}
               start={cropStart}
               suggestions={suggestions}
@@ -136,9 +154,13 @@ export function ImageDetail(p: Props) {
               onCancel={() => setCropping(false)}
             />
           ) : im.crop ? (
-            <CropPreview src={imageUrl(im.id)} crop={im.crop} />
+            <CropPreview src={imageUrl(im.id)} crop={im.crop} flip={im.flip} />
           ) : (
-            <img src={imageUrl(im.id)} alt={im.relPath} />
+            <img
+              src={imageUrl(im.id)}
+              alt={im.relPath}
+              style={flipStyle(im.flip)}
+            />
           )}
           {!cropping && p.onPrev && (
             <button type="button" className="nav prev" onClick={p.onPrev}>
@@ -157,7 +179,11 @@ export function ImageDetail(p: Props) {
               <div className="filename">{im.relPath}</div>
               <div className="muted">
                 {im.width}×{im.height}
-                {im.crop && " (cropped)"} ·{" "}
+                {[im.crop && "cropped", im.flip && "flipped"].filter(Boolean)
+                  .length
+                  ? ` (${[im.crop && "cropped", im.flip && "flipped"].filter(Boolean).join(", ")})`
+                  : ""}{" "}
+                ·{" "}
                 <span className={`status-text status-${im.status}`}>
                   {im.status}
                 </span>
@@ -210,6 +236,24 @@ export function ImageDetail(p: Props) {
             >
               ✂ {im.crop ? "Edit crop" : "Crop"}
             </button>
+            <button
+              type="button"
+              className={im.flip?.includes("h") ? "primary" : "ghost"}
+              disabled={cropping || cropSaving}
+              title="Mirror left–right. Keeps the AI review; the caption is marked outdated (left/right)."
+              onClick={() => toggleFlip("h")}
+            >
+              ⇋ Flip H
+            </button>
+            <button
+              type="button"
+              className={im.flip?.includes("v") ? "primary" : "ghost"}
+              disabled={cropping || cropSaving}
+              title="Turn upside down. The AI review is redone."
+              onClick={() => toggleFlip("v")}
+            >
+              ⇵ Flip V
+            </button>
           </div>
 
           {im.reasons.length > 0 && (
@@ -240,8 +284,8 @@ export function ImageDetail(p: Props) {
           <h3>Caption</h3>
           {im.captionStale && (
             <div className="banner warn small">
-              Written before the image was cropped. Check it, or click
-              Regenerate.
+              Written before the image was cropped or flipped. Check it, or
+              click Regenerate.
             </div>
           )}
           <textarea

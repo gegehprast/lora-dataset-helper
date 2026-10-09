@@ -169,7 +169,7 @@ class Analyzer:
     def info(self):
         return {"device": self.device, "faceProviders": self.face_providers, "fallback": self.fallback_reason}
 
-    def _analyze_one(self, path, crop=None):
+    def _analyze_one(self, path, crop=None, flip=None):
         import cv2
         import imagehash
         import numpy as np
@@ -177,6 +177,11 @@ class Analyzer:
 
         with Image.open(path) as im:
             im = ImageOps.exif_transpose(im).convert("RGB")
+        # Same order as the app: EXIF rotation, then flip, then crop.
+        if flip and "h" in flip:
+            im = ImageOps.mirror(im)
+        if flip and "v" in flip:
+            im = ImageOps.flip(im)
         if crop:
             # Normalized x, y, w, h relative to the EXIF-rotated image (same as the app).
             W, H = im.size
@@ -221,22 +226,23 @@ class Analyzer:
         result["faces"].sort(key=lambda fc: (fc["bbox"][2] - fc["bbox"][0]) * (fc["bbox"][3] - fc["bbox"][1]), reverse=True)
         return result, im
 
-    def analyze(self, paths, crops=None):
+    def analyze(self, paths, crops=None, flips=None):
         try:
-            return self._analyze(paths, crops)
+            return self._analyze(paths, crops, flips)
         except GpuOutOfMemory as e:
             if self.device == "cpu":
                 raise
             self.to_cpu(f"GPU out of memory ({e})")
-            return self._analyze(paths, crops)
+            return self._analyze(paths, crops, flips)
 
-    def _analyze(self, paths, crops):
+    def _analyze(self, paths, crops, flips=None):
         torch = self.torch
         results, images = [], []
         crops = crops or [None] * len(paths)
-        for p, crop in zip(paths, crops):
+        flips = flips or [None] * len(paths)
+        for p, crop, flip in zip(paths, crops, flips):
             try:
-                r, im = self._analyze_one(p, crop)
+                r, im = self._analyze_one(p, crop, flip)
                 results.append(r)
                 images.append(im)
             except Exception as e:  # noqa: BLE001
@@ -305,7 +311,7 @@ def main():
             elif op == "analyze":
                 if analyzer is None:
                     analyzer = load_analyzer()
-                result = analyzer.analyze(args["paths"], args.get("crops"))
+                result = analyzer.analyze(args["paths"], args.get("crops"), args.get("flips"))
             elif op == "shutdown":
                 send({"id": mid, "ok": True, "result": None})
                 break

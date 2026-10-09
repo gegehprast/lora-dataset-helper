@@ -63,12 +63,13 @@ const Card = memo(function Card({
           )}
           {isRef && <span className="badge ref">ref</span>}
           {im.crop && <span className="badge">crop</span>}
+          {im.flip && <span className="badge">flip</span>}
           {im.status === "selected" && im.caption && (
             <span
               className={`badge ${im.captionStale ? "caption-stale" : "caption"}`}
               title={
                 im.captionStale
-                  ? "Caption written before the crop"
+                  ? "Caption written before the crop or flip"
                   : "Has a caption"
               }
             >

@@ -1,5 +1,5 @@
 import { join } from "node:path"
-import { cropFromJson } from "../crop"
+import { cropFromJson, flipFromDb } from "../crop"
 import { db } from "../db"
 import type { JobContext } from "../jobs"
 import { type PythonWorker, type WorkerAnalysis, worker } from "../worker"
@@ -7,7 +7,12 @@ import { datasetDir } from "./scan"
 
 const BATCH = 8
 
-type Row = { id: number; rel_path: string; crop: string | null }
+type Row = {
+  id: number
+  rel_path: string
+  crop: string | null
+  flip: string | null
+}
 type WorkerClient = Pick<PythonWorker, "call">
 
 /**
@@ -33,6 +38,7 @@ export async function analyzeRows(
     const batch = rows.slice(i, i + BATCH)
     const results = await client.call<WorkerAnalysis[]>("analyze", {
       paths: batch.map((r) => join(dir, r.rel_path)),
+      flips: batch.map((r) => flipFromDb(r.flip)),
       crops: batch.map((r) => {
         const c = cropFromJson(r.crop)
         return c ? [c.x, c.y, c.w, c.h] : null
@@ -81,7 +87,7 @@ export async function analyzeDataset(dataset: string, ctx: JobContext) {
   const dir = datasetDir(dataset)
   const todo = db
     .query<Row, [string]>(
-      "SELECT id, rel_path, crop FROM images WHERE dataset = ? AND analysis IS NULL ORDER BY rel_path",
+      "SELECT id, rel_path, crop, flip FROM images WHERE dataset = ? AND analysis IS NULL ORDER BY rel_path",
     )
     .all(dataset)
   if (!todo.length) return "Everything already analyzed"

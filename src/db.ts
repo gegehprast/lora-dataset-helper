@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite"
 import { paths } from "./config"
-import { cropFromJson, cropKey } from "./crop"
+import { cropFromJson, editKey, flipFromDb } from "./crop"
 import {
   type Analysis,
   DEFAULT_SETTINGS,
@@ -60,6 +60,7 @@ function addColumn(table: string, column: string, type: string) {
 }
 addColumn("images", "outfit_group", "TEXT")
 addColumn("images", "crop", "TEXT")
+addColumn("images", "flip", "TEXT")
 addColumn("images", "caption_stale", "INTEGER NOT NULL DEFAULT 0")
 
 /** Raw row shape. */
@@ -90,6 +91,8 @@ export interface ImageRow {
   outfit_group: string | null
   /** JSON Crop or NULL. */
   crop: string | null
+  /** "h", "v", "hv" or NULL. */
+  flip: string | null
   caption_stale: number
 }
 
@@ -193,6 +196,7 @@ export function toRecord(row: ImageRow): ImageRecord {
     hash: row.file_hash,
     thumb: thumbId(row),
     crop: cropFromJson(row.crop),
+    flip: flipFromDb(row.flip),
     width: row.width,
     height: row.height,
     status: row.status,
@@ -232,8 +236,13 @@ export function setCaption(
   ).run(caption, model, id)
 }
 
-/** Thumbnail id: the file hash, plus the crop's key when cropped. */
-export function thumbId(row: Pick<ImageRow, "file_hash" | "crop">): string {
+/** Thumbnail id: the file hash, plus a key of the crop/flip when edited. */
+export function thumbId(
+  row: Pick<ImageRow, "file_hash" | "crop" | "flip">,
+): string {
   const crop = cropFromJson(row.crop)
-  return crop ? `${row.file_hash}-${cropKey(crop)}` : row.file_hash
+  const flip = flipFromDb(row.flip)
+  return crop || flip
+    ? `${row.file_hash}-${editKey(crop, flip)}`
+    : row.file_hash
 }

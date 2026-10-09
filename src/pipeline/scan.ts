@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from "node:fs"
 import { extname, join } from "node:path"
 import { IMAGE_EXTENSIONS, paths } from "../config"
-import { cropFromJson, loadImage } from "../crop"
+import { cropFromJson, flipFromDb, loadImage } from "../crop"
 import { db, thumbId } from "../db"
 import type { JobContext } from "../jobs"
 import type { DatasetSummary } from "../types"
@@ -81,11 +81,11 @@ async function hashFile(path: string): Promise<string> {
 /** Create the (cropped) thumbnail for a row if it doesn't exist yet. */
 export async function makeThumbnail(
   src: string,
-  row: { file_hash: string; crop: string | null },
+  row: { file_hash: string; crop: string | null; flip: string | null },
 ) {
   const dest = thumbPath(thumbId(row))
   if (await Bun.file(dest).exists()) return
-  await (await loadImage(src, cropFromJson(row.crop)))
+  await (await loadImage(src, cropFromJson(row.crop), flipFromDb(row.flip)))
     .resize(512, 512, { fit: "inside", withoutEnlargement: true })
     .webp({ quality: 80 })
     .toFile(dest)
@@ -107,10 +107,11 @@ export async function scanDataset(dataset: string, ctx: JobContext) {
           mtime: number
           file_hash: string
           crop: string | null
+          flip: string | null
         },
         [string]
       >(
-        "SELECT id, rel_path, size, mtime, file_hash, crop FROM images WHERE dataset = ?",
+        "SELECT id, rel_path, size, mtime, file_hash, crop, flip FROM images WHERE dataset = ?",
       )
       .all(dataset)
       .map((r) => [r.rel_path, r]),
@@ -123,7 +124,7 @@ export async function scanDataset(dataset: string, ctx: JobContext) {
     db.query(`UPDATE images SET file_hash = ?, size = ?, mtime = ?, width = NULL, height = NULL,
     analysis = NULL, clip_emb = NULL, face_embs = NULL, tags = NULL, tags_model = NULL, status = 'pending',
     score = NULL, reasons = '[]', framing = NULL, dup_of = NULL, identity = NULL, main_face = NULL, outfit_group = NULL,
-    caption = NULL, caption_model = NULL, caption_stale = 0, crop = NULL WHERE id = ?`)
+    caption = NULL, caption_model = NULL, caption_stale = 0, crop = NULL, flip = NULL WHERE id = ?`)
 
   let added = 0
   let changed = 0
@@ -139,7 +140,7 @@ export async function scanDataset(dataset: string, ctx: JobContext) {
         await makeThumbnail(abs, prev)
       } else {
         const hash = await hashFile(abs)
-        await makeThumbnail(abs, { file_hash: hash, crop: null })
+        await makeThumbnail(abs, { file_hash: hash, crop: null, flip: null })
         if (!prev) {
           insert.run(dataset, rel, hash, st.size, st.mtimeMs)
           added++

@@ -78,6 +78,38 @@ async function hashFile(path: string): Promise<string> {
   return hasher.digest("hex")
 }
 
+/**
+ * Path of thumbnail `id`, creating it first if it's missing (e.g. the cache was cleared, or
+ * thumbnail naming changed since it was made). null if no image has that thumbnail id.
+ */
+export async function ensureThumbnail(id: string): Promise<string | null> {
+  const path = thumbPath(id)
+  if (await Bun.file(path).exists()) return path
+  const rows = db
+    .query<
+      {
+        dataset: string
+        rel_path: string
+        file_hash: string
+        crop: string | null
+        flip: string | null
+      },
+      [string]
+    >(
+      "SELECT dataset, rel_path, file_hash, crop, flip FROM images WHERE file_hash = ?",
+    )
+    .all(id.slice(0, 40))
+  const row = rows.find((r) => thumbId(r) === id)
+  if (!row) return null
+  try {
+    await makeThumbnail(join(datasetDir(row.dataset), row.rel_path), row)
+  } catch (e) {
+    console.warn(`[thumbs] can't create ${id}:`, (e as Error).message)
+    return null
+  }
+  return path
+}
+
 /** Create the (cropped) thumbnail for a row if it doesn't exist yet. */
 export async function makeThumbnail(
   src: string,

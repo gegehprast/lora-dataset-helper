@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import sharp, { type Sharp } from "sharp"
 import { paths } from "../src/config"
@@ -15,7 +15,7 @@ import {
 } from "../src/db"
 import { setImageCrop, setImageFlip } from "../src/pipeline/cropping"
 import { exportDataset } from "../src/pipeline/export"
-import { scanDataset, thumbPath } from "../src/pipeline/scan"
+import { ensureThumbnail, scanDataset, thumbPath } from "../src/pipeline/scan"
 import { reviewSingleImage } from "../src/pipeline/tag"
 import { clearModelCache, imageDataUrl } from "../src/venice"
 import {
@@ -301,6 +301,23 @@ describe("flip", () => {
       sharp(Buffer.from(url.split(",")[1], "base64")),
     )
     expect(top.b).toBeGreaterThan(200)
+  })
+})
+
+describe("thumbnails", () => {
+  test("a missing thumbnail of an edited image is recreated on request", async () => {
+    const { id, client } = await cropDataset()
+    await setImageCrop(id, { x: 0, y: 0, w: 1, h: 0.5 }, { client })
+    await setImageFlip(id, "h", { client })
+    const thumb = toRecord(getRow(id)!).thumb
+    rmSync(thumbPath(thumb)) // e.g. cache cleared or thumbnail naming changed
+    expect(await ensureThumbnail(thumb)).toBe(thumbPath(thumb))
+    const meta = await sharp(thumbPath(thumb)).metadata()
+    expect([meta.width, meta.height]).toEqual([200, 200])
+  })
+
+  test("unknown thumbnail ids return null", async () => {
+    expect(await ensureThumbnail(`${"0".repeat(40)}-deadbeef`)).toBeNull()
   })
 })
 

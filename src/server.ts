@@ -21,9 +21,9 @@ import { setImageCrop, setImageFlip } from "./pipeline/cropping"
 import { exportDataset } from "./pipeline/export"
 import {
   datasetDir,
+  ensureThumbnail,
   listDatasets,
   scanDataset,
-  thumbPath,
 } from "./pipeline/scan"
 import { runSelection } from "./pipeline/select"
 import { reviewSingleImage, tagDataset } from "./pipeline/tag"
@@ -278,11 +278,13 @@ const server = Bun.serve({
       return new Response(Bun.file(join(datasetDir(row.dataset), row.rel_path)))
     },
 
-    "/thumbs/:file": (req) => {
+    "/thumbs/:file": async (req) => {
       const id = req.params.file.replace(/\.webp$/, "")
       if (!/^[0-9a-f]{40}(-[0-9a-f]{8})?$/.test(id))
         return fail("Bad thumbnail", 400)
-      return new Response(Bun.file(thumbPath(id)), {
+      const path = await ensureThumbnail(id)
+      if (!path) return fail("Not found", 404)
+      return new Response(Bun.file(path), {
         headers: { "Cache-Control": "public, max-age=31536000, immutable" },
       })
     },
